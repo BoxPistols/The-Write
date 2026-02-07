@@ -3,22 +3,55 @@ import {
   Sparkles, Check, X, Loader2, Sun, Moon, Copy, FileText,
   Bold, Italic, Underline, Link, AlignLeft, AlignCenter,
   AlignRight, List, ListOrdered, Outdent, Indent,
-  Type, Highlighter, MoveVertical, Feather, ChevronDown, Settings, Key, Eye, EyeOff,
+  Type, Highlighter, MoveVertical, MoveHorizontal, RotateCcw, Feather, ChevronDown, Settings, Key, Eye, EyeOff,
 } from 'lucide-react';
 import { t, locale } from '../locales';
 import { AVAILABLE_MODELS, DEFAULT_MODEL_ID, PROVIDERS, getModel } from '../config/models';
 import { SAMPLES } from '../config/samples';
 
+const JP_SANS_FALLBACK = "'Noto Sans JP', 'BIZ UDPGothic', 'Yu Gothic', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Meiryo', 'Segoe UI', -apple-system, sans-serif";
+const JP_SERIF_FALLBACK = "'Noto Serif JP', 'BIZ UDPMincho', 'Hiragino Mincho ProN', 'Yu Mincho', 'MS PMincho', serif";
+const JP_MONO_FALLBACK = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace";
+
 const FONTS = [
-  { name: 'Cormorant Garamond', label: 'Cormorant Garamond' },
-  { name: 'Georgia', label: 'Georgia' },
-  { name: 'Times New Roman', label: 'Times New Roman' },
-  { name: 'Source Sans 3', label: 'Source Sans 3' },
-  { name: 'Courier New', label: 'Courier New' },
-  { name: 'Verdana', label: 'Verdana' },
+  { name: 'Cormorant Garamond', label: 'Cormorant Garamond', stack: `'Cormorant Garamond', ${JP_SERIF_FALLBACK}` },
+  { name: 'Georgia', label: 'Georgia', stack: `'Georgia', ${JP_SERIF_FALLBACK}` },
+  { name: 'Times New Roman', label: 'Times New Roman', stack: `'Times New Roman', ${JP_SERIF_FALLBACK}` },
+  { name: 'Noto Serif JP', label: 'Noto Serif JP', stack: `'Noto Serif JP', 'BIZ UDPMincho', 'Hiragino Mincho ProN', 'Yu Mincho', 'MS PMincho', serif` },
+  { name: 'BIZ UDPMincho', label: 'BIZ UDPMincho', stack: `'BIZ UDPMincho', 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', 'MS PMincho', serif` },
+  { name: 'Noto Sans JP', label: 'Noto Sans JP', stack: `${JP_SANS_FALLBACK}` },
+  { name: 'BIZ UDPGothic', label: 'BIZ UDPGothic', stack: `'BIZ UDPGothic', 'Noto Sans JP', 'Yu Gothic', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Meiryo', 'Segoe UI', -apple-system, sans-serif` },
+  { name: 'Source Sans 3', label: 'Source Sans 3', stack: `'Source Sans 3', ${JP_SANS_FALLBACK}` },
+  { name: 'Verdana', label: 'Verdana', stack: `'Verdana', ${JP_SANS_FALLBACK}` },
+  { name: 'Courier New', label: 'Courier New', stack: `'Courier New', ${JP_MONO_FALLBACK}` },
 ];
+const FONT_STACKS = FONTS.reduce((acc, font) => {
+  acc[font.name] = font.stack;
+  return acc;
+}, {});
+const getFontStack = (name) => FONT_STACKS[name] || `${name}, ${JP_SANS_FALLBACK}`;
 const FONT_SIZES = ['12px', '14px', '16px', '18px', '20px', '24px', '28px', '32px'];
 const LINE_SPACINGS = ['1', '1.25', '1.5', '1.75', '2', '2.5'];
+const LETTER_SPACINGS = ['0', '0.04em', '0.08em', '0.12em', '0.16em', '0.2em', '0.28em'];
+
+const EDITOR_DEFAULTS = {
+  fontFamily: 'Cormorant Garamond',
+  fontSize: '16px',
+  lineSpacing: '1.75',
+  letterSpacing: '0.12em',
+  darkMode: false,
+};
+
+const loadEditorSettings = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem('wa-editor') || '{}');
+    return { ...EDITOR_DEFAULTS, ...saved };
+  } catch { return { ...EDITOR_DEFAULTS }; }
+};
+
+const saveEditorSettings = (settings) => {
+  try { localStorage.setItem('wa-editor', JSON.stringify(settings)); } catch {}
+};
 const CATEGORIES = ['all', 'grammar', 'spelling', 'punctuation', 'style', 'clarity'];
 
 const CAT_STYLES = {
@@ -85,7 +118,7 @@ function Sep() {
 /* ─── Toolbar Button ───────────────────────────── */
 function TBtn({ onClick, title, children, className = '' }) {
   return (
-    <button onClick={onClick} title={title} className={`toolbar-btn ${className}`}>
+    <button onMouseDown={(e) => e.preventDefault()} onClick={onClick} title={title} className={`toolbar-btn ${className}`}>
       {children}
     </button>
   );
@@ -183,7 +216,28 @@ function Dropdown({ open, onClose, trigger, children, align = 'left' }) {
 
 /* ─── Main Component ───────────────────────────── */
 export default function TextEditor() {
-  const [darkMode, setDarkMode] = useState(false);
+  const [editorSettings, setEditorSettingsRaw] = useState(loadEditorSettings);
+  const { fontFamily, fontSize, lineSpacing, letterSpacing, darkMode } = editorSettings;
+
+  const updateSetting = useCallback((key, value) => {
+    setEditorSettingsRaw((prev) => {
+      const next = { ...prev, [key]: value };
+      saveEditorSettings(next);
+      return next;
+    });
+  }, []);
+
+  const resetEditorSettings = useCallback(() => {
+    setEditorSettingsRaw({ ...EDITOR_DEFAULTS });
+    saveEditorSettings({ ...EDITOR_DEFAULTS });
+  }, []);
+
+  const setFontFamily = (v) => updateSetting('fontFamily', v);
+  const setFontSize = (v) => updateSetting('fontSize', v);
+  const setLineSpacing = (v) => updateSetting('lineSpacing', v);
+  const setLetterSpacing = (v) => updateSetting('letterSpacing', v);
+  const setDarkMode = (v) => updateSetting('darkMode', v);
+
   const [suggestions, setSuggestions] = useState([]);
   const [activeCategory, setActiveCategory] = useState('all');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -191,9 +245,6 @@ export default function TextEditor() {
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [charCount, setCharCount] = useState(0);
-  const [fontFamily, setFontFamily] = useState('Cormorant Garamond');
-  const [fontSize, setFontSize] = useState('18px');
-  const [lineSpacing, setLineSpacing] = useState('1.75');
   const [openDropdown, setOpenDropdown] = useState(null);
   const [copied, setCopied] = useState(false);
   const [selectedModel, setSelectedModel] = useState(() => {
@@ -475,6 +526,11 @@ export default function TextEditor() {
             </div>
           </Dropdown>
 
+          {/* Reset editor settings */}
+          <TBtn onClick={resetEditorSettings} title={t('resetSettings')}>
+            <RotateCcw style={{ width: 16, height: 16 }} />
+          </TBtn>
+
           {/* Settings button */}
           <TBtn onClick={() => setShowSettingsDialog(true)} title="API Keys">
             <Settings style={{ width: 17, height: 17 }} />
@@ -501,7 +557,7 @@ export default function TextEditor() {
             <Dropdown open={openDropdown === 'font'} onClose={closeDropdown} trigger={
               <button onClick={() => setOpenDropdown(openDropdown === 'font' ? null : 'font')} title={t('fontFamily')}
                 style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', fontSize: 13,
-                  fontFamily: fontFamily + ', serif', color: 'var(--text-secondary)', background: 'none',
+                  fontFamily: getFontStack(fontFamily), color: 'var(--text-secondary)', background: 'none',
                   border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius)', cursor: 'pointer',
                   minWidth: 130, justifyContent: 'space-between', transition: 'border-color 0.15s' }}
                 onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--border-primary)')}
@@ -512,7 +568,7 @@ export default function TextEditor() {
             }>
               {FONTS.map((f) => (
                 <button key={f.name} onClick={() => { setFontFamily(f.name); execCmd('fontName', f.name); closeDropdown(); }}
-                  className={`dropdown-item ${fontFamily === f.name ? 'selected' : ''}`} style={{ fontFamily: f.name + ', serif' }}>{f.label}</button>
+                  className={`dropdown-item ${fontFamily === f.name ? 'selected' : ''}`} style={{ fontFamily: f.stack }}>{f.label}</button>
               ))}
             </Dropdown>
 
@@ -567,6 +623,17 @@ export default function TextEditor() {
                   className={`dropdown-item ${lineSpacing === s ? 'selected' : ''}`}>{s}</button>
               ))}
             </Dropdown>
+            {/* Letter Spacing */}
+            <Dropdown open={openDropdown === 'letterSpacing'} onClose={closeDropdown} trigger={
+              <TBtn onClick={() => setOpenDropdown(openDropdown === 'letterSpacing' ? null : 'letterSpacing')} title={t('letterSpacing')}>
+                <MoveHorizontal style={{ width: 16, height: 16 }} />
+              </TBtn>
+            }>
+              {LETTER_SPACINGS.map((s) => (
+                <button key={s} onClick={() => { setLetterSpacing(s); closeDropdown(); }}
+                  className={`dropdown-item ${letterSpacing === s ? 'selected' : ''}`}>{s === '0' ? 'Normal' : s}</button>
+              ))}
+            </Dropdown>
             <TBtn onClick={() => execCmd('insertUnorderedList')} title={t('bulletList')}><List style={{ width: 16, height: 16 }} /></TBtn>
             <TBtn onClick={() => execCmd('insertOrderedList')} title={t('numberedList')}><ListOrdered style={{ width: 16, height: 16 }} /></TBtn>
             <TBtn onClick={() => execCmd('outdent')} title={t('decreaseIndent')}><Outdent style={{ width: 16, height: 16 }} /></TBtn>
@@ -605,7 +672,7 @@ export default function TextEditor() {
                 </div>
               </div>
               <div ref={editorRef} contentEditable data-placeholder={t('pleaseEnterText')} suppressContentEditableWarning
-                style={{ flex: 1, padding: '24px 28px', fontFamily: fontFamily + ', Georgia, serif', fontSize, lineHeight: lineSpacing, color: 'var(--text-primary)', minHeight: 200, outline: 'none', overflow: 'auto' }} />
+                style={{ flex: 1, padding: '24px 28px', fontFamily: getFontStack(fontFamily), fontSize, lineHeight: lineSpacing, letterSpacing, color: 'var(--text-primary)', minHeight: 200, outline: 'none', overflow: 'auto' }} />
             </div>
           </div>
 
@@ -633,7 +700,7 @@ export default function TextEditor() {
             <h2 style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 20, fontWeight: 600, marginBottom: 12, color: 'var(--text-primary)' }}>
               {t('suggestions')}
               {suggestions.length > 0 && (
-                <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--text-muted)', fontFamily: "'Source Sans 3', sans-serif", marginLeft: 8 }}>
+                <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--text-muted)', fontFamily: getFontStack('Source Sans 3'), marginLeft: 8 }}>
                   {suggestions.filter((s) => s.status === 'pending').length}/{suggestions.length}
                 </span>
               )}
@@ -672,7 +739,7 @@ export default function TextEditor() {
                         {isDone && <span style={{ fontSize: 11, fontWeight: 500, color: s.status === 'accepted' ? 'var(--accept)' : 'var(--text-muted)', fontStyle: 'italic' }}>{s.status === 'accepted' ? t('accept') : t('reject')}</span>}
                       </div>
                       <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 10 }}>{s.explanation}</p>
-                      <div style={{ fontSize: 13, lineHeight: 1.5, padding: '8px 10px', borderRadius: 'var(--radius)', background: 'var(--bg-primary)', fontFamily: fontFamily + ', Georgia, serif' }}>
+                      <div style={{ fontSize: 13, lineHeight: 1.5, padding: '8px 10px', borderRadius: 'var(--radius)', background: 'var(--bg-primary)', fontFamily: getFontStack(fontFamily) }}>
                         <span style={{ textDecoration: 'line-through', color: 'var(--cat-spelling)', opacity: 0.7 }}>{s.original}</span>
                         <span style={{ margin: '0 6px', color: 'var(--text-faint)' }}>{'\u2192'}</span>
                         <span style={{ color: 'var(--accept)', fontWeight: 500 }}>{s.suggestion}</span>
