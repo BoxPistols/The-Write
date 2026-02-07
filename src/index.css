@@ -276,6 +276,26 @@ body {
   transform: scale(0.95);
 }
 
+.toolbar-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* Editor split layout */
+.editor-split {
+  flex: 1;
+  display: flex;
+  gap: 16px;
+  padding: 24px;
+  overflow: hidden;
+}
+
+.editor-area {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+
 /* Category pill */
 .cat-pill {
   padding: 4px 10px;
@@ -437,6 +457,11 @@ body {
     width: calc(100vw - 32px) !important;
     max-width: 440px;
     padding: 20px;
+  }
+
+  .editor-split {
+    flex-direction: column;
+    padding: 16px;
   }
 }
 

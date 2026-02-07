@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
-  Sparkles, Check, X, Loader2, Sun, Moon, Copy, FileText,
+  Sparkles, Check, X, Loader2, Sun, Moon, Copy, FileText, Eraser,
   Bold, Italic, Underline, Link, AlignLeft, AlignCenter,
   AlignRight, List, ListOrdered, Outdent, Indent,
   Type, Highlighter, MoveVertical, MoveHorizontal, RotateCcw, Feather, ChevronDown, Settings, Key, Eye, EyeOff,
@@ -33,6 +33,7 @@ const getFontStack = (name) => FONT_STACKS[name] || `${name}, ${JP_SANS_FALLBACK
 const FONT_SIZES = ['12px', '14px', '16px', '18px', '20px', '24px', '28px', '32px'];
 const LINE_SPACINGS = ['1', '1.25', '1.5', '1.75', '2', '2.5'];
 const LETTER_SPACINGS = ['0', '0.04em', '0.08em', '0.12em', '0.16em', '0.2em', '0.28em'];
+const CONTENT_STORAGE_KEY = 'wa-content';
 
 const EDITOR_DEFAULTS = {
   fontFamily: 'Cormorant Garamond',
@@ -51,6 +52,14 @@ const loadEditorSettings = () => {
 
 const saveEditorSettings = (settings) => {
   try { localStorage.setItem('wa-editor', JSON.stringify(settings)); } catch {}
+};
+const loadEditorContent = () => {
+  try { return JSON.parse(localStorage.getItem(CONTENT_STORAGE_KEY) || '{}'); }
+  catch (err) { console.warn('Failed to load editor content', err); return {}; }
+};
+const saveEditorContent = (content) => {
+  try { localStorage.setItem(CONTENT_STORAGE_KEY, JSON.stringify(content)); }
+  catch (err) { console.warn('Failed to save editor content', err); }
 };
 const CATEGORIES = ['all', 'grammar', 'spelling', 'punctuation', 'style', 'clarity'];
 
@@ -279,8 +288,19 @@ export default function TextEditor() {
   }, [darkMode]);
 
   useEffect(() => {
+    if (!editorRef.current) return;
+    const saved = loadEditorContent();
+    if (saved?.html) {
+      editorRef.current.innerHTML = saved.html;
+    }
+    setCharCount((editorRef.current.innerText || '').trim().length);
+  }, []);
+
+  useEffect(() => {
     const handleInput = () => {
-      if (editorRef.current) setCharCount(editorRef.current.innerText.trim().length);
+      if (!editorRef.current) return;
+      setCharCount((editorRef.current.innerText || '').trim().length);
+      saveEditorContent({ html: editorRef.current.innerHTML });
     };
     const editor = editorRef.current;
     if (editor) {
@@ -305,6 +325,26 @@ export default function TextEditor() {
       sel.removeAllRanges();
       sel.addRange(savedSelectionRef.current);
     }
+  }, []);
+
+  const refreshEditorContent = useCallback(() => {
+    if (!editorRef.current) return;
+    setCharCount((editorRef.current.innerText || '').trim().length);
+    saveEditorContent({ html: editorRef.current.innerHTML });
+  }, []);
+
+  const resetEditorContent = useCallback(() => {
+    if (editorRef.current) editorRef.current.innerHTML = '';
+    setSuggestions([]);
+    setLastUsage(null);
+    setCopied(false);
+    setOpenDropdown(null);
+    setCharCount(0);
+    saveEditorContent({ html: '' });
+  }, []);
+
+  const rejectAllSuggestions = useCallback(() => {
+    setSuggestions((prev) => prev.map((s) => (s.status === 'pending' ? { ...s, status: 'rejected' } : s)));
   }, []);
 
   const handleAddLink = () => {
@@ -367,8 +407,9 @@ export default function TextEditor() {
         break;
       }
     }
+    refreshEditorContent();
     setSuggestions((prev) => prev.map((s) => (s.id === suggestion.id ? { ...s, status: 'accepted' } : s)));
-  }, []);
+  }, [refreshEditorContent]);
 
   const dismissSuggestion = useCallback((suggestion) => {
     setSuggestions((prev) => prev.map((s) => (s.id === suggestion.id ? { ...s, status: 'rejected' } : s)));
@@ -381,7 +422,7 @@ export default function TextEditor() {
   const loadSample = (text) => {
     if (editorRef.current) {
       editorRef.current.innerText = text;
-      setCharCount(text.trim().length);
+      refreshEditorContent();
       setSuggestions([]);
       setOpenDropdown(null);
     }
@@ -442,7 +483,7 @@ export default function TextEditor() {
                   {/* Provider header */}
                   <div style={{
                     padding: '8px 14px 4px',
-                    fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
+                    fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
                     color: group.available ? 'var(--text-muted)' : 'var(--text-faint)',
                     display: 'flex', alignItems: 'center', gap: 6,
                   }}>
@@ -482,23 +523,23 @@ export default function TextEditor() {
                           <div style={{ fontWeight: isSelected ? 600 : 400, fontSize: 13, color: isSelected ? 'var(--accent)' : undefined }}>
                             {m.name}
                           </div>
-                          <div style={{ fontSize: 10, color: 'var(--text-faint)', marginTop: 1 }}>{m.description}</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 1 }}>{m.description}</div>
                         </div>
 
                         {/* Speed dots */}
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
                           <Dots count={m.speed} color="var(--cat-grammar)" />
-                          <span style={{ fontSize: 8, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t('speed')}</span>
+                          <span style={{ fontSize: 12, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t('speed')}</span>
                         </div>
 
                         {/* Quality dots */}
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
                           <Dots count={m.quality} color="var(--cat-clarity)" />
-                          <span style={{ fontSize: 8, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t('quality')}</span>
+                          <span style={{ fontSize: 12, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t('quality')}</span>
                         </div>
 
                         {/* Price */}
-                        <div style={{ fontSize: 10, color: m.inputPrice === 0 ? 'var(--accept)' : 'var(--text-muted)', fontWeight: 500, textAlign: 'right', minWidth: 36 }}>
+                        <div style={{ fontSize: 12, color: m.inputPrice === 0 ? 'var(--accept)' : 'var(--text-muted)', fontWeight: 500, textAlign: 'right', minWidth: 36 }}>
                           {m.inputPrice === 0 && m.outputPrice === 0 ? t('free') : `$${m.inputPrice}`}
                         </div>
                       </button>
@@ -512,7 +553,7 @@ export default function TextEditor() {
                   onClick={() => { closeDropdown(); setShowSettingsDialog(true); }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 6, width: '100%',
-                    padding: '6px 8px', fontSize: 11, color: 'var(--text-muted)',
+                    padding: '6px 8px', fontSize: 12, color: 'var(--text-muted)',
                     background: 'none', border: 'none', borderRadius: 'var(--radius)',
                     cursor: 'pointer', transition: 'color 0.15s',
                   }}
@@ -641,39 +682,45 @@ export default function TextEditor() {
           </div>
 
           {/* Editor Area */}
-          <div className="editor-area" style={{ flex: 1, overflow: 'auto', padding: 24 }}>
-            <div style={{
-              background: 'var(--bg-surface)', border: '1px solid var(--border-primary)',
-              borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)',
-              height: '100%', display: 'flex', flexDirection: 'column',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
-                <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)' }}>{t('yourText')}</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 12, color: 'var(--text-faint)', fontVariantNumeric: 'tabular-nums' }}>{charCount.toLocaleString()} {t('characters')}</span>
-                  {/* Sample Text */}
-                  <Dropdown open={openDropdown === 'sample'} onClose={closeDropdown} align="right" trigger={
-                    <button onClick={() => setOpenDropdown(openDropdown === 'sample' ? null : 'sample')} title={t('sampleTexts')}
-                      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', fontSize: 11,
-                        fontWeight: 500, color: 'var(--accent)', background: 'var(--accent-soft)',
-                        border: '1px solid transparent', borderRadius: 'var(--radius)', cursor: 'pointer', transition: 'all 0.15s' }}
-                      onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--accent)')}
-                      onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'transparent')}>
-                      <FileText style={{ width: 12, height: 12 }} />{t('sample')}<ChevronDown style={{ width: 10, height: 10, opacity: 0.6 }} />
+          <div className="editor-split">
+            <div className="editor-area">
+              <div style={{
+                background: 'var(--bg-surface)', border: '1px solid var(--border-primary)',
+                borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)',
+                height: '100%', display: 'flex', flexDirection: 'column',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)' }}>{t('yourText')}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, color: 'var(--text-faint)', fontVariantNumeric: 'tabular-nums' }}>{charCount.toLocaleString()} {t('characters')}</span>
+                    {/* Sample Text */}
+                    <Dropdown open={openDropdown === 'sample'} onClose={closeDropdown} align="right" trigger={
+                      <button onClick={() => setOpenDropdown(openDropdown === 'sample' ? null : 'sample')} title={t('sampleTexts')}
+                        style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', fontSize: 12,
+                          fontWeight: 500, color: 'var(--accent)', background: 'var(--accent-soft)',
+                          border: '1px solid transparent', borderRadius: 'var(--radius)', cursor: 'pointer', transition: 'all 0.15s' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--accent)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'transparent')}>
+                        <FileText style={{ width: 12, height: 12 }} />{t('sample')}<ChevronDown style={{ width: 10, height: 10, opacity: 0.6 }} />
+                      </button>
+                    }>
+                      {SAMPLES.map((s, i) => (
+                        <button key={i} onClick={() => loadSample(s.text)} className="dropdown-item" style={{ fontSize: 12 }}>{s.label}</button>
+                      ))}
+                    </Dropdown>
+                    <button onClick={handleCopy} className="toolbar-btn" title={t('copy')} style={{ width: 28, height: 28 }}>
+                      {copied ? <Check style={{ width: 14, height: 14, color: 'var(--accept)' }} /> : <Copy style={{ width: 14, height: 14 }} />}
                     </button>
-                  }>
-                    {SAMPLES.map((s, i) => (
-                      <button key={i} onClick={() => loadSample(s.text)} className="dropdown-item" style={{ fontSize: 12 }}>{s.label}</button>
-                    ))}
-                  </Dropdown>
-                  <button onClick={handleCopy} className="toolbar-btn" title={t('copy')} style={{ width: 28, height: 28 }}>
-                    {copied ? <Check style={{ width: 14, height: 14, color: 'var(--accept)' }} /> : <Copy style={{ width: 14, height: 14 }} />}
-                  </button>
+                    <button onClick={resetEditorContent} className="toolbar-btn" title={t('resetText')} style={{ width: 28, height: 28 }}>
+                      <Eraser style={{ width: 14, height: 14 }} />
+                    </button>
+                  </div>
                 </div>
+                <div ref={editorRef} contentEditable data-placeholder={t('pleaseEnterText')} suppressContentEditableWarning
+                  style={{ flex: 1, padding: '24px 28px', fontFamily: getFontStack(fontFamily), fontSize, lineHeight: lineSpacing, letterSpacing, color: 'var(--text-primary)', minHeight: 200, outline: 'none', overflow: 'auto' }} />
               </div>
-              <div ref={editorRef} contentEditable data-placeholder={t('pleaseEnterText')} suppressContentEditableWarning
-                style={{ flex: 1, padding: '24px 28px', fontFamily: getFontStack(fontFamily), fontSize, lineHeight: lineSpacing, letterSpacing, color: 'var(--text-primary)', minHeight: 200, outline: 'none', overflow: 'auto' }} />
             </div>
+
           </div>
 
           {/* Analyze Button */}
@@ -697,14 +744,31 @@ export default function TextEditor() {
         {/* ─── Suggestions Panel ─────────────────── */}
         <div className="suggestions-panel">
           <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid var(--border-primary)' }}>
-            <h2 style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 20, fontWeight: 600, marginBottom: 12, color: 'var(--text-primary)' }}>
-              {t('suggestions')}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
+              <h2 style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 20, fontWeight: 600, color: 'var(--text-primary)' }}>
+                {t('suggestions')}
+                {suggestions.length > 0 && (
+                  <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--text-muted)', fontFamily: getFontStack('Source Sans 3'), marginLeft: 8 }}>
+                    {suggestions.filter((s) => s.status === 'pending').length}/{suggestions.length}
+                  </span>
+                )}
+              </h2>
               {suggestions.length > 0 && (
-                <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--text-muted)', fontFamily: getFontStack('Source Sans 3'), marginLeft: 8 }}>
-                  {suggestions.filter((s) => s.status === 'pending').length}/{suggestions.length}
-                </span>
+                <button
+                  onClick={rejectAllSuggestions}
+                  style={{
+                    padding: '4px 10px', fontSize: 12, fontWeight: 600,
+                    borderRadius: 999, border: '1px solid var(--border-subtle)',
+                    background: 'transparent', color: 'var(--text-muted)',
+                    cursor: 'pointer', transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--cat-spelling)'; e.currentTarget.style.color = 'var(--cat-spelling)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-subtle)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+                >
+                  {t('rejectAllSuggestions')}
+                </button>
               )}
-            </h2>
+            </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {CATEGORIES.map((cat) => {
                 const count = cat === 'all' ? suggestions.length : suggestions.filter((s) => s.type === cat).length;
@@ -735,8 +799,8 @@ export default function TextEditor() {
                       onMouseEnter={(e) => { if (!isDone) { e.currentTarget.style.borderColor = 'var(--border-accent)'; e.currentTarget.style.boxShadow = 'var(--shadow-sm)'; } }}
                       onMouseLeave={(e) => { e.currentTarget.style.borderColor = isDone ? 'var(--border-subtle)' : 'var(--border-primary)'; e.currentTarget.style.boxShadow = 'none'; }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', padding: '2px 8px', borderRadius: 100, background: catStyle.bg, color: catStyle.color }}>{t(s.type)}</span>
-                        {isDone && <span style={{ fontSize: 11, fontWeight: 500, color: s.status === 'accepted' ? 'var(--accept)' : 'var(--text-muted)', fontStyle: 'italic' }}>{s.status === 'accepted' ? t('accept') : t('reject')}</span>}
+                        <span style={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', padding: '2px 8px', borderRadius: 100, background: catStyle.bg, color: catStyle.color }}>{t(s.type)}</span>
+                        {isDone && <span style={{ fontSize: 12, fontWeight: 500, color: s.status === 'accepted' ? 'var(--accept)' : 'var(--text-muted)', fontStyle: 'italic' }}>{s.status === 'accepted' ? t('accept') : t('reject')}</span>}
                       </div>
                       <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 10 }}>{s.explanation}</p>
                       <div style={{ fontSize: 13, lineHeight: 1.5, padding: '8px 10px', borderRadius: 'var(--radius)', background: 'var(--bg-primary)', fontFamily: getFontStack(fontFamily) }}>
@@ -783,7 +847,7 @@ export default function TextEditor() {
             const costUsd = m ? (inTok / 1e6) * m.inputPrice + (outTok / 1e6) * m.outputPrice : 0;
             const costJpy = costUsd * 150;
             return (
-              <div style={{ padding: '8px 16px', borderTop: '1px solid var(--border-subtle)', fontSize: 10, color: 'var(--text-faint)', display: 'flex', justifyContent: 'space-between', fontVariantNumeric: 'tabular-nums' }}>
+              <div style={{ padding: '8px 16px', borderTop: '1px solid var(--border-subtle)', fontSize: 12, color: 'var(--text-faint)', display: 'flex', justifyContent: 'space-between', fontVariantNumeric: 'tabular-nums' }}>
                 <span>{inTok.toLocaleString()} + {outTok.toLocaleString()} tokens</span>
                 <span>≈ ¥{costJpy < 0.01 ? '0.01未満' : costJpy.toFixed(2)}</span>
               </div>
@@ -838,7 +902,7 @@ export default function TextEditor() {
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: isProviderAvailable(key) ? 'var(--accept)' : 'var(--text-faint)' }} />
                   {provider.name}
                   {availableProviders[key] && (
-                    <span style={{ fontSize: 10, fontWeight: 400, color: 'var(--accept)', fontStyle: 'italic' }}>
+                    <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--accept)', fontStyle: 'italic' }}>
                       ({locale.startsWith('ja') ? 'サーバー設定済み' : 'server configured'})
                     </span>
                   )}
