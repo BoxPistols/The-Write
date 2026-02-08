@@ -96,6 +96,20 @@
   --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.3);
 
   --grain-opacity: 0.04;
+  color-scheme: dark;
+}
+
+/* Dark mode: ensure form inputs and contentEditable text are visible */
+.dark input,
+.dark textarea,
+.dark select {
+  color: var(--text-primary);
+  background: var(--bg-primary);
+}
+
+.dark [contenteditable] {
+  color: var(--text-primary);
+  caret-color: var(--text-primary);
 }
 
 * {
