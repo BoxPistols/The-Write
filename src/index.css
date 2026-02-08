@@ -96,6 +96,19 @@
   --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.3);
 
   --grain-opacity: 0.04;
+  color-scheme: dark;
+}
+
+.dark input,
+.dark textarea,
+.dark select {
+  color: var(--text-primary);
+  background: inherit;
+}
+
+.dark [contenteditable] {
+  color: var(--text-primary);
+  caret-color: var(--text-primary);
 }
 
 * {
