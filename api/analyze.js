@@ -21,7 +21,9 @@ async function callOpenAI(model, messages, apiKey) {
   });
   if (!response.ok) {
     const errBody = await response.text();
-    throw { status: response.status, message: `OpenAI error ${response.status}: ${errBody}` };
+    const err = new Error(`OpenAI error ${response.status}: ${errBody}`);
+    err.status = response.status;
+    throw err;
   }
   const data = await response.json();
   return {
@@ -40,7 +42,9 @@ async function callAnthropic(model, messages, apiKey) {
   });
   if (!response.ok) {
     const errBody = await response.text();
-    throw { status: response.status, message: `Anthropic error ${response.status}: ${errBody}` };
+    const err = new Error(`Anthropic error ${response.status}: ${errBody}`);
+    err.status = response.status;
+    throw err;
   }
   return response.json();
 }
@@ -61,7 +65,9 @@ async function callGemini(model, messages, apiKey) {
   );
   if (!response.ok) {
     const errBody = await response.text();
-    throw { status: response.status, message: `Gemini error ${response.status}: ${errBody}` };
+    const err = new Error(`Gemini error ${response.status}: ${errBody}`);
+    err.status = response.status;
+    throw err;
   }
   const data = await response.json();
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
