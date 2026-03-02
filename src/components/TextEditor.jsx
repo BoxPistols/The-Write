@@ -3,7 +3,7 @@ import {
   Sparkles, Check, X, Loader2, Sun, Moon, Copy, FileText, Eraser,
   Bold, Italic, Underline, Link, AlignLeft, AlignCenter,
   AlignRight, List, ListOrdered, Outdent, Indent,
-  Type, Highlighter, MoveVertical, MoveHorizontal, RotateCcw, Feather, ChevronDown, Settings, Key, Eye, EyeOff,
+  Type, Highlighter, MoveVertical, MoveHorizontal, RotateCcw, Feather, ChevronDown, Settings, Key, Eye, EyeOff, Wand2, Maximize2, Minimize2,
 } from 'lucide-react';
 import { t, locale } from '../locales';
 import { AVAILABLE_MODELS, DEFAULT_MODEL_ID, PROVIDERS, getModel } from '../config/models';
@@ -104,6 +104,83 @@ ${text}`;
       model,
       messages: [{ role: 'user', content: userPrompt }],
       clientKeys,
+    }),
+  });
+
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+};
+
+const rewriteViaProxy = async (model, text, clientKeys) => {
+  const isJa = locale.startsWith('ja');
+  const prompt = isJa
+    ? `あなたは日本語のプロ編集者です。以下の文章を、人間が書いたと感じさせる自然な文章に書き直してください。意味・事実・トーンは変えないでください。
+
+【厳守ルール：記号・表記】
+- Markdown記法を使わない（**太字**のアスタリスク、#見出しなど一切禁止）
+- 「」のカギ括弧による強調を削り、文脈に溶かす
+- （）による補足を最小限にし、必要なら文に組み込む
+- 「： 」（コロン直後に半角スペース）を使わない
+- ／で概念を並列しない（「戦略／実行」→「戦略と実行」など）
+- —（em dash）を言い換えに使わない
+
+【厳守ルール：文体・内容】
+- 「以下では〜を説明します」「結論から言うと」などの前置き宣言を入れない
+- 「一概には言えませんが」「場合によります」「一般的に」などの逃げ文句を削る
+- 「最適化」「本質」「価値を最大化」「エコシステム」などの抽象語を、何がどうなるかが伝わる具体的な表現に置き換える
+- 「さらに」「また」「したがって」「そのため」「結果として」などの接続詞を削るか最小限にする
+- 同じ語尾（〜です。〜です。〜です。）の連続を避ける
+- 短い文と長い文を混ぜ、文のリズムにメリハリをつける
+- 「参考になれば幸いです」「ぜひ活用してみてください」などの締めの定型句を入れない
+- STEP/ステップによる構造宣言を避ける
+- 羅針盤・土台・エンジン・設計図などの使い古された比喩を使わない
+- not A but B 構文（「これは〜ではなく〜です」）の多用をやめる
+- 評価語（「非常に重要です」「大きなメリット」）には根拠を伴わせるか削る
+
+【出力形式】
+書き換え後の文章だけを出力する。説明・前置き・注意書きは一切出力しない。
+
+---
+元の文章：
+${text}`
+    : `You are a professional editor. Rewrite the following text to sound natural and human-written. Preserve the original meaning, facts, and tone exactly.
+
+Strictly follow these rules:
+
+Symbols & Formatting:
+- No Markdown (**bold** asterisks, # headings, etc.)
+- Minimize quotation marks used for emphasis; integrate into prose
+- Minimize parenthetical asides; incorporate naturally into sentences
+- No colon-space pattern (": " as labels or section headers)
+- No slashes (/) for parallel concepts; rephrase as prose
+- No em dashes (—) for rephrasing or clarification
+
+Content & Style:
+- No advance notices ("Here I will explain...", "In conclusion, ...", "Let me outline three points")
+- Remove hedging language ("generally speaking", "it depends", "in most cases", "it's hard to say definitively")
+- Replace abstract buzzwords ("optimize", "maximize value", "essence", "ecosystem", "synergy") with concrete expressions showing what actually happens
+- Cut most conjunctions (furthermore, moreover, additionally, therefore) — use them sparingly
+- Avoid repeating the same sentence-ending pattern
+- Mix short and long sentences for varied rhythm
+- No formulaic closings ("I hope this helps", "Feel free to use this")
+- Avoid cliché metaphors (compass, foundation, engine, blueprint, pillars, backbone)
+- No "not A but B" construction overuse
+- Back up strong evaluations ("very effective", "great benefit") with evidence or cut them
+
+Output: Output ONLY the rewritten text. No explanation, preamble, or notes.
+
+---
+Original text:
+${text}`;
+
+  const res = await fetch('/api/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      clientKeys,
+      maxTokens: 3000,
     }),
   });
 
@@ -262,6 +339,9 @@ export default function TextEditor() {
   const [suggestions, setSuggestions] = useState([]);
   const [activeCategory, setActiveCategory] = useState('all');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isRewriting, setIsRewriting] = useState(false);
+  const [rewriteResult, setRewriteResult] = useState(null); // { original, rewritten }
+  const [isModalMaximized, setIsModalMaximized] = useState(false);
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
@@ -299,11 +379,27 @@ export default function TextEditor() {
     document.documentElement.classList.toggle('dark', darkMode);
   }, [darkMode]);
 
+  // Lock body scroll when any modal is open; reset maximize on close
+  useEffect(() => {
+    const isOpen = !!rewriteResult;
+    document.body.style.overflow = isOpen ? 'hidden' : '';
+    if (!isOpen) setIsModalMaximized(false);
+    return () => { document.body.style.overflow = ''; };
+  }, [rewriteResult]);
+
   useEffect(() => {
     if (!editorRef.current) return;
     const saved = loadEditorContent();
     if (saved?.html) {
       editorRef.current.innerHTML = saved.html;
+      // Strip inline color/font styles inherited from paste (e.g. Google products)
+      editorRef.current.querySelectorAll('[style]').forEach((el) => {
+        el.style.removeProperty('color');
+        el.style.removeProperty('background-color');
+        el.style.removeProperty('font-family');
+        el.style.removeProperty('font-size');
+        if (!el.getAttribute('style')) el.removeAttribute('style');
+      });
     }
     setCharCount((editorRef.current.innerText || '').trim().length);
   }, []);
@@ -355,6 +451,12 @@ export default function TextEditor() {
     saveEditorContent({ html: '' });
   }, []);
 
+  const handlePaste = useCallback((e) => {
+    e.preventDefault();
+    document.execCommand('insertText', false, e.clipboardData.getData('text/plain'));
+    refreshEditorContent();
+  }, [refreshEditorContent]);
+
   const rejectAllSuggestions = useCallback(() => {
     setSuggestions((prev) => prev.map((s) => (s.status === 'pending' ? { ...s, status: 'rejected' } : s)));
   }, []);
@@ -381,28 +483,60 @@ export default function TextEditor() {
     return !!availableProviders[provider] || !!clientKeys[provider];
   };
 
-  const handleAnalyze = async () => {
+  const handleRun = async () => {
     const text = editorRef.current?.innerText?.trim();
     if (!text) { alert(t('pleaseEnterText')); return; }
 
     setIsAnalyzing(true);
+    setIsRewriting(true);
     setSuggestions([]);
     setLastUsage(null);
 
-    try {
-      const data = await analyzeViaProxy(selectedModel, text, clientKeys);
-      if (data.usage) setLastUsage({ ...data.usage, model: selectedModel });
-      const content = data.content?.[0]?.text || '';
-      try {
-        const jsonMatch = content.match(/\[[\s\S]*\]/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          setSuggestions(parsed.map((s, i) => ({ ...s, id: i, status: 'pending' })));
-        } else { alert(t('failedToParse')); }
-      } catch { alert(t('failedToParse')); }
-    } catch { alert(t('failedToAnalyze')); }
-    finally { setIsAnalyzing(false); }
+    await Promise.allSettled([
+      analyzeViaProxy(selectedModel, text, clientKeys)
+        .then((data) => {
+          if (data.usage) setLastUsage({ ...data.usage, model: selectedModel });
+          const content = data.content?.[0]?.text || '';
+          try {
+            let parsed = null;
+            try { parsed = JSON.parse(content); } catch { /* not clean JSON */ }
+            if (!parsed) {
+              const start = content.indexOf('[');
+              if (start !== -1) {
+                let depth = 0, end = -1;
+                for (let i = start; i < content.length; i++) {
+                  if (content[i] === '[') depth++;
+                  else if (content[i] === ']') { depth--; if (depth === 0) { end = i; break; } }
+                }
+                if (end !== -1) parsed = JSON.parse(content.slice(start, end + 1));
+              }
+            }
+            if (parsed) setSuggestions(parsed.map((s, i) => ({ ...s, id: i, status: 'pending', type: s.type?.replace(/_/g, '-') })));
+            else alert(t('failedToParse'));
+          } catch (e) { console.error('[parse]', e, content); alert(t('failedToParse')); }
+        })
+        .catch((e) => { console.error('[analyze]', e); alert(t('failedToAnalyze')); })
+        .finally(() => setIsAnalyzing(false)),
+
+      rewriteViaProxy(selectedModel, text, clientKeys)
+        .then((data) => {
+          const rewritten = data.content?.[0]?.text?.trim() || '';
+          if (rewritten) setRewriteResult({ original: text, rewritten });
+          else alert(t('failedToRewrite'));
+        })
+        .catch((e) => { console.error('[rewrite]', e); alert(t('failedToRewrite')); })
+        .finally(() => setIsRewriting(false)),
+    ]);
   };
+
+  const applyRewrite = useCallback(() => {
+    if (rewriteResult && editorRef.current) {
+      editorRef.current.innerText = rewriteResult.rewritten;
+      refreshEditorContent();
+      setSuggestions([]);
+    }
+    setRewriteResult(null);
+  }, [rewriteResult, refreshEditorContent]);
 
   const applySuggestion = useCallback((suggestion) => {
     if (!editorRef.current) return;
@@ -729,26 +863,30 @@ export default function TextEditor() {
                   </div>
                 </div>
                 <div ref={editorRef} contentEditable data-placeholder={t('pleaseEnterText')} suppressContentEditableWarning
+                  onPaste={handlePaste}
                   style={{ flex: 1, padding: '24px 28px', fontFamily: getFontStack(fontFamily), fontSize, lineHeight: lineSpacing, letterSpacing, color: 'var(--text-primary)', minHeight: 200, outline: 'none', overflow: 'auto' }} />
               </div>
             </div>
 
           </div>
 
-          {/* Analyze Button */}
+          {/* Action Button */}
           <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-primary)' }}>
-            <button onClick={handleAnalyze} disabled={isAnalyzing}
-              className={isAnalyzing ? 'animate-shimmer' : 'animate-pulse-accent'}
+            <button onClick={handleRun} disabled={isAnalyzing || isRewriting}
+              className={(isAnalyzing || isRewriting) ? 'animate-shimmer' : 'animate-pulse-accent'}
               style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                padding: '12px 20px', fontSize: 14, fontWeight: 600, letterSpacing: '0.01em',
-                color: '#fff', background: isAnalyzing ? undefined : 'var(--accent)',
-                border: 'none', borderRadius: 'var(--radius)', cursor: isAnalyzing ? 'wait' : 'pointer', transition: 'background 0.2s, transform 0.1s' }}
-              onMouseEnter={(e) => { if (!isAnalyzing) e.currentTarget.style.background = 'var(--accent-hover)'; }}
-              onMouseLeave={(e) => { if (!isAnalyzing) e.currentTarget.style.background = 'var(--accent)'; }}
+                padding: '12px 16px', fontSize: 14, fontWeight: 600, letterSpacing: '0.01em',
+                color: '#fff', background: (isAnalyzing || isRewriting) ? undefined : 'var(--accent)',
+                border: 'none', borderRadius: 'var(--radius)', cursor: (isAnalyzing || isRewriting) ? 'wait' : 'pointer',
+                transition: 'background 0.2s, transform 0.1s' }}
+              onMouseEnter={(e) => { if (!isAnalyzing && !isRewriting) e.currentTarget.style.background = 'var(--accent-hover)'; }}
+              onMouseLeave={(e) => { if (!isAnalyzing && !isRewriting) e.currentTarget.style.background = 'var(--accent)'; }}
               onMouseDown={(e) => { e.currentTarget.style.transform = 'scale(0.99)'; }}
               onMouseUp={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}>
-              {isAnalyzing ? (<><Loader2 style={{ width: 16, height: 16 }} className="animate-spin-slow" />{t('analyzing')}</>)
-                : (<><Sparkles style={{ width: 16, height: 16 }} />{t('analyzeText')}</>)}
+              {(isAnalyzing || isRewriting)
+                ? (<><Loader2 style={{ width: 16, height: 16 }} className="animate-spin-slow" />
+                    {isAnalyzing && isRewriting ? `${t('analyzing')} & ${t('rewriting')}` : isAnalyzing ? t('analyzing') : t('rewriting')}</>)
+                : (<><Sparkles style={{ width: 15, height: 15 }} /><Wand2 style={{ width: 15, height: 15 }} />{t('runAll')}</>)}
             </button>
           </div>
         </div>
@@ -956,6 +1094,75 @@ export default function TextEditor() {
                 onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--accent-hover)')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--accent)')}>
                 {locale.startsWith('ja') ? '完了' : 'Done'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── AI Rewrite Result Dialog ─────────────── */}
+      {rewriteResult && (
+        <div className="modal-backdrop">
+          {/* Flex-column panel with fixed height so inner columns can scroll */}
+          <div
+            style={{
+              background: 'var(--bg-surface)', border: '1px solid var(--border-primary)',
+              boxShadow: 'var(--shadow-lg)',
+              animation: 'fadeInUp 0.25s ease-out',
+              display: 'flex', flexDirection: 'column', overflow: 'hidden',
+              ...(isModalMaximized
+                ? { position: 'fixed', inset: 0, borderRadius: 0, width: '100vw', height: '100vh', resize: 'none' }
+                : { borderRadius: 'var(--radius-lg)', width: 820, maxWidth: 'calc(100vw - 24px)', height: 'min(88vh, 720px)', minWidth: 480, minHeight: 300, resize: 'both' }
+              ),
+            }}>
+            {/* Header — fixed */}
+            <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 24px', borderBottom: '1px solid var(--border-subtle)' }}>
+              <h3 style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 20, fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+                <Wand2 style={{ width: 18, height: 18, color: 'var(--cat-ai-writing)' }} />{t('rewriteDialogTitle')}
+              </h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <button
+                  onClick={() => setIsModalMaximized((v) => !v)}
+                  className="toolbar-btn" title={isModalMaximized ? '元のサイズ' : '最大化'}
+                  style={{ width: 28, height: 28 }}>
+                  {isModalMaximized
+                    ? <Minimize2 style={{ width: 15, height: 15 }} />
+                    : <Maximize2 style={{ width: 15, height: 15 }} />}
+                </button>
+                <button onClick={() => setRewriteResult(null)} className="toolbar-btn" title="閉じる" style={{ width: 28, height: 28 }}>
+                  <X style={{ width: 16, height: 16 }} />
+                </button>
+              </div>
+            </div>
+            {/* Body — flex:1 + minHeight:0 is the key to making children scrollable */}
+            <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '1fr 1fr', overflow: 'hidden' }}>
+              {[
+                { label: t('rewriteBefore'), text: rewriteResult.original, accent: 'var(--cat-spelling)' },
+                { label: t('rewriteAfter'), text: rewriteResult.rewritten, accent: 'var(--cat-ai-writing)' },
+              ].map(({ label, text, accent }, i) => (
+                <div key={label} style={{ display: 'flex', flexDirection: 'column', borderRight: i === 0 ? '1px solid var(--border-subtle)' : 'none', minHeight: 0 }}>
+                  {/* Column label — sticky */}
+                  <div style={{ flexShrink: 0, padding: '9px 20px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: accent, borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-toolbar)' }}>
+                    {label}
+                  </div>
+                  {/* Scrollable text — flex:1 + minHeight:0 */}
+                  <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '18px 20px', fontSize: 13, lineHeight: 1.75, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', fontFamily: getFontStack(fontFamily) }}>
+                    {text}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {/* Footer — fixed */}
+            <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '14px 24px', borderTop: '1px solid var(--border-subtle)' }}>
+              <button onClick={() => setRewriteResult(null)}
+                style={{ padding: '8px 18px', fontSize: 13, fontWeight: 500, borderRadius: 'var(--radius)', border: '1px solid var(--border-primary)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                {t('cancel')}
+              </button>
+              <button onClick={applyRewrite}
+                style={{ padding: '8px 20px', fontSize: 13, fontWeight: 600, borderRadius: 'var(--radius)', border: 'none', background: 'var(--cat-ai-writing)', color: '#fff', cursor: 'pointer', transition: 'opacity 0.15s' }}
+                onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.85')}
+                onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}>
+                {t('applyRewrite')}
               </button>
             </div>
           </div>

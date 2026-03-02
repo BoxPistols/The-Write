@@ -115,6 +115,24 @@
   caret-color: var(--text-primary);
 }
 
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: var(--text-faint);
+}
+
+.dark ::selection {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+}
+
+.dark .editor-area a {
+  color: var(--cat-clarity);
+}
+
+.dark .editor-area hr {
+  border-color: var(--border-primary);
+}
+
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--text-faint) transparent;
