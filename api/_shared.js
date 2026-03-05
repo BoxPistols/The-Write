@@ -136,7 +136,6 @@ export async function testConnection(provider, apiKey) {
 
   switch (provider) {
     case 'openai': {
-      // GET /v1/models は軽量で課金なし
       const res = await fetch('https://api.openai.com/v1/models', {
         headers: { Authorization: `Bearer ${apiKey}` },
       });
@@ -147,7 +146,6 @@ export async function testConnection(provider, apiKey) {
       return true;
     }
     case 'anthropic': {
-      // 最小リクエストで認証確認 (max_tokens=1)
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -168,7 +166,6 @@ export async function testConnection(provider, apiKey) {
       return true;
     }
     case 'gemini': {
-      // GET /v1/models は軽量で課金なし
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1/models?key=${apiKey}`
       );

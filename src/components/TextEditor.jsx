@@ -591,7 +591,7 @@ export default function TextEditor() {
       }
     } catch (e) {
       console.error('Analyze error:', e);
-      alert(t('failedToAnalyze'));
+      alert(e.message?.includes('401') ? t('failedUnauthorized') : t('failedToAnalyze'));
     }
     finally { setIsAnalyzing(false); stopProgress(); }
   }, [resolveModel, clientKeys, customInstruction, startProgress, stopProgress, checkRateLimit]);
@@ -613,7 +613,7 @@ export default function TextEditor() {
       else alert(t('failedToRewrite'));
     } catch (e) {
       console.error('Rewrite error:', e);
-      alert(t('failedToRewrite'));
+      alert(e.message?.includes('401') ? t('failedUnauthorized') : t('failedToRewrite'));
     } finally { setIsRewriting(false); stopProgress(); }
   }, [resolveModel, clientKeys, startProgress, stopProgress, checkRateLimit]);
 
@@ -652,7 +652,7 @@ export default function TextEditor() {
             } else console.warn('[runAll] analyze: no JSON array found in response');
           } catch (e) { console.error('[parse]', e, content); }
         })
-        .catch((e) => { console.error('[analyze]', e); })
+        .catch((e) => { console.error('[analyze]', e); if (e.message?.includes('401')) alert(t('failedUnauthorized')); })
         .finally(() => setIsAnalyzing(false)),
 
       rewriteViaProxy(modelId, text, clientKeys)
@@ -662,7 +662,7 @@ export default function TextEditor() {
           if (rewritten) pendingRewrite = { original: text, rewritten };
           else alert(t('failedToRewrite'));
         })
-        .catch((e) => { console.error('[rewrite]', e); alert(t('failedToRewrite')); })
+        .catch((e) => { console.error('[rewrite]', e); alert(e.message?.includes('401') ? t('failedUnauthorized') : t('failedToRewrite')); })
         .finally(() => setIsRewriting(false)),
     ]);
 
@@ -1425,7 +1425,7 @@ export default function TextEditor() {
                     <input
                       type={keyVisibility[key] ? 'text' : 'password'}
                       value={clientKeys[key] || ''}
-                      onChange={(e) => { setClientKeys((prev) => ({ ...prev, [key]: e.target.value || undefined })); setTestResults((prev) => { const next = { ...prev }; delete next[key]; return next; }); }}
+                      onChange={(e) => { setClientKeys((prev) => ({ ...prev, [key]: e.target.value.trim() || undefined })); setTestResults((prev) => { const next = { ...prev }; delete next[key]; return next; }); }}
                       placeholder={provider.envKey}
                       style={{
                         width: '100%', padding: '8px 36px 8px 12px', fontSize: 13,
