@@ -131,6 +131,58 @@ async function callGemini(model, messages, apiKey) {
   };
 }
 
+export async function testConnection(provider, apiKey) {
+  if (!apiKey) throw { status: 400, message: 'API key not provided' };
+
+  switch (provider) {
+    case 'openai': {
+      // GET /v1/models は軽量で課金なし
+      const res = await fetch('https://api.openai.com/v1/models', {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw { status: res.status, message: `OpenAI: ${err}` };
+      }
+      return true;
+    }
+    case 'anthropic': {
+      // 最小リクエストで認証確認 (max_tokens=1)
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'hi' }],
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw { status: res.status, message: `Anthropic: ${err}` };
+      }
+      return true;
+    }
+    case 'gemini': {
+      // GET /v1/models は軽量で課金なし
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1/models?key=${apiKey}`
+      );
+      if (!res.ok) {
+        const err = await res.text();
+        throw { status: res.status, message: `Gemini: ${err}` };
+      }
+      return true;
+    }
+    default:
+      throw { status: 400, message: `Unknown provider: ${provider}` };
+  }
+}
+
 export async function analyzeRequest({ model, messages, clientKeys } = {}) {
   const provider = getProvider(model);
   if (!provider) {

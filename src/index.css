@@ -41,6 +41,8 @@
   --cat-style-bg: rgba(74, 140, 111, 0.1);
   --cat-clarity: #4e7ea8;
   --cat-clarity-bg: rgba(78, 126, 168, 0.1);
+  --cat-ai-writing: #9b59b6;
+  --cat-ai-writing-bg: rgba(155, 89, 182, 0.1);
 
   --shadow-sm: 0 1px 3px rgba(31, 36, 48, 0.08);
   --shadow-md: 0 4px 16px rgba(31, 36, 48, 0.12);
@@ -90,6 +92,8 @@
   --cat-style-bg: rgba(90, 172, 127, 0.1);
   --cat-clarity: #6098c0;
   --cat-clarity-bg: rgba(96, 152, 192, 0.1);
+  --cat-ai-writing: #bb86fc;
+  --cat-ai-writing-bg: rgba(187, 134, 252, 0.12);
 
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.15);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.2);
