@@ -392,13 +392,24 @@ export default function TextEditor() {
       if (data.usage) setLastUsage({ ...data.usage, model: selectedModel });
       const content = data.content?.[0]?.text || '';
       try {
-        const jsonMatch = content.match(/\[[\s\S]*\]/);
+        // マークダウンコードブロックを除去してからJSONを抽出
+        const cleaned = content.replace(/```(?:json)?\s*/g, '').replace(/```/g, '');
+        const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]);
           setSuggestions(parsed.map((s, i) => ({ ...s, id: i, status: 'pending' })));
-        } else { alert(t('failedToParse')); }
-      } catch { alert(t('failedToParse')); }
-    } catch { alert(t('failedToAnalyze')); }
+        } else {
+          console.warn('No JSON array found in response:', content);
+          alert(t('failedToParse'));
+        }
+      } catch (e) {
+        console.warn('JSON parse error:', e.message, '\nResponse:', content);
+        alert(t('failedToParse'));
+      }
+    } catch (e) {
+      console.error('Analyze error:', e);
+      alert(t('failedToAnalyze'));
+    }
     finally { setIsAnalyzing(false); }
   };
 

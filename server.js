@@ -7,7 +7,7 @@ import { analyzeRequest, getAvailableProviders } from './api/_shared.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3456;
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
