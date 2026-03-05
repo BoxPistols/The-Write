@@ -30,7 +30,7 @@ export function resolveKey(provider, clientKeys) {
   return clientKeys?.[provider] || process.env[ENV_KEYS[provider]] || null;
 }
 
-async function callOpenAI(model, messages, apiKey) {
+async function callOpenAI(model, messages, apiKey, maxTokens) {
   if (!apiKey) throw new Error('OPENAI_API_KEY is not set');
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -41,7 +41,7 @@ async function callOpenAI(model, messages, apiKey) {
     },
     body: JSON.stringify({
       model,
-      max_completion_tokens: 1000,
+      max_completion_tokens: maxTokens || 4000,
       messages,
     }),
   });
@@ -63,7 +63,7 @@ async function callOpenAI(model, messages, apiKey) {
   };
 }
 
-async function callAnthropic(model, messages, apiKey) {
+async function callAnthropic(model, messages, apiKey, maxTokens) {
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set');
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -75,7 +75,7 @@ async function callAnthropic(model, messages, apiKey) {
     },
     body: JSON.stringify({
       model,
-      max_tokens: 1000,
+      max_tokens: maxTokens || 4000,
       messages,
     }),
   });
@@ -89,7 +89,7 @@ async function callAnthropic(model, messages, apiKey) {
   return response.json();
 }
 
-async function callGemini(model, messages, apiKey) {
+async function callGemini(model, messages, apiKey, maxTokens) {
   if (!apiKey) throw new Error('GEMINI_API_KEY is not set');
 
   const contents = messages.map((m) => ({
@@ -107,7 +107,7 @@ async function callGemini(model, messages, apiKey) {
       },
       body: JSON.stringify({
         contents,
-        generationConfig: { maxOutputTokens: 1000 },
+        generationConfig: { maxOutputTokens: maxTokens || 4000 },
       }),
     }
   );
@@ -183,7 +183,7 @@ export async function testConnection(provider, apiKey) {
   }
 }
 
-export async function analyzeRequest({ model, messages, clientKeys } = {}) {
+export async function analyzeRequest({ model, messages, clientKeys, maxTokens } = {}) {
   const provider = getProvider(model);
   if (!provider) {
     throw { status: 400, message: `Unknown model: ${model}` };
@@ -193,11 +193,11 @@ export async function analyzeRequest({ model, messages, clientKeys } = {}) {
 
   switch (provider) {
     case 'openai':
-      return callOpenAI(model, messages, apiKey);
+      return callOpenAI(model, messages, apiKey, maxTokens);
     case 'anthropic':
-      return callAnthropic(model, messages, apiKey);
+      return callAnthropic(model, messages, apiKey, maxTokens);
     case 'gemini':
-      return callGemini(model, messages, apiKey);
+      return callGemini(model, messages, apiKey, maxTokens);
     default:
       throw { status: 400, message: `Unknown model: ${model}` };
   }

@@ -106,6 +106,7 @@ ${text}`;
       model,
       messages: [{ role: 'user', content: userPrompt }],
       clientKeys,
+      maxTokens: 4000,
     }),
   });
 
