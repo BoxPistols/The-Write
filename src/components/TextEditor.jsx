@@ -538,6 +538,7 @@ export default function TextEditor() {
     if (!text) { alert(t('pleaseEnterText')); return; }
 
     setIsRewriting(true);
+    setSuggestions([]); // リライトでテキストが変わるため既存の提案をクリア
     try {
       const data = await rewriteViaProxy(selectedModel, text, clientKeys);
       const rewritten = data.content?.[0]?.text?.trim() || '';
@@ -557,6 +558,10 @@ export default function TextEditor() {
     setIsRewriting(true);
     setSuggestions([]);
     setLastUsage(null);
+
+    // 分析とリライトを並行実行（速度重視）
+    // リライト結果はstateに保持するだけで、ダイアログはまだ出さない
+    let pendingRewrite = null;
 
     await Promise.allSettled([
       analyzeViaProxy(selectedModel, text, clientKeys, customInstruction)
@@ -578,12 +583,16 @@ export default function TextEditor() {
       rewriteViaProxy(selectedModel, text, clientKeys)
         .then((data) => {
           const rewritten = data.content?.[0]?.text?.trim() || '';
-          if (rewritten) setRewriteResult({ original: text, rewritten });
+          if (rewritten) pendingRewrite = { original: text, rewritten };
           else alert(t('failedToRewrite'));
         })
         .catch((e) => { console.error('[rewrite]', e); alert(t('failedToRewrite')); })
         .finally(() => setIsRewriting(false)),
     ]);
+
+    // 両方完了後にリライト結果ダイアログを表示
+    // 先に提案を確認 → その後リライト結果を確認、という順序になる
+    if (pendingRewrite) setRewriteResult(pendingRewrite);
   };
 
   const applyRewrite = useCallback(() => {
