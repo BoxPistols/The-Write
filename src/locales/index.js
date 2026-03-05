@@ -58,6 +58,9 @@ export const TRANSLATIONS = {
     loadSample: 'Load Sample',
     providerKeyMissing: 'API key not configured for this provider',
     appTitleShort: 'The Write',
+    customInstruction: 'Additional Instructions',
+    customInstructionPlaceholder: 'e.g. Make the tone more formal, reduce passive voice, adjust politeness level...',
+    customInstructionLabel: 'Fine-tune the analysis with specific requirements',
   },
   'ja-JP': {
     appTitle: 'The Write',
@@ -118,6 +121,9 @@ export const TRANSLATIONS = {
     loadSample: 'サンプルを読み込む',
     providerKeyMissing: 'このプロバイダーのAPIキーが設定されていません',
     appTitleShort: 'The Write',
+    customInstruction: '追加指示',
+    customInstructionPlaceholder: '例：敬語のレベルを上げる、受動態を減らす、文体をカジュアルにする...',
+    customInstructionLabel: '分析の微調整・追加要件を入力',
   },
 };
 

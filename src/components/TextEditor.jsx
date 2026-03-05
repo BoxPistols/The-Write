@@ -71,8 +71,11 @@ const CAT_STYLES = {
   clarity: { color: 'var(--cat-clarity)', bg: 'var(--cat-clarity-bg)' },
 };
 
-const analyzeViaProxy = async (model, text, clientKeys) => {
-  const userPrompt = `You are a professional writing assistant. Analyze the following text and provide suggestions for improvement.
+const analyzeViaProxy = async (model, text, clientKeys, customInstruction = '') => {
+  const customPart = customInstruction.trim()
+    ? `\n\nAdditional instructions from the user: ${customInstruction.trim()}`
+    : '';
+  const userPrompt = `You are a professional writing assistant. Analyze the following text and provide suggestions for improvement.${customPart}
 
 For each suggestion, provide a JSON array where each item has:
 - "type": one of "grammar", "spelling", "punctuation", "style", "clarity"
@@ -247,6 +250,9 @@ export default function TextEditor() {
   const setLetterSpacing = (v) => updateSetting('letterSpacing', v);
   const setDarkMode = (v) => updateSetting('darkMode', v);
 
+  const [customInstruction, setCustomInstruction] = useState(() => {
+    try { return localStorage.getItem('wa-custom-instruction') || ''; } catch { return ''; }
+  });
   const [suggestions, setSuggestions] = useState([]);
   const [activeCategory, setActiveCategory] = useState('all');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -286,6 +292,10 @@ export default function TextEditor() {
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
   }, [darkMode]);
+
+  useEffect(() => {
+    try { localStorage.setItem('wa-custom-instruction', customInstruction); } catch {}
+  }, [customInstruction]);
 
   useEffect(() => {
     if (!editorRef.current) return;
@@ -378,7 +388,7 @@ export default function TextEditor() {
     setLastUsage(null);
 
     try {
-      const data = await analyzeViaProxy(selectedModel, text, clientKeys);
+      const data = await analyzeViaProxy(selectedModel, text, clientKeys, customInstruction);
       if (data.usage) setLastUsage({ ...data.usage, model: selectedModel });
       const content = data.content?.[0]?.text || '';
       try {
@@ -723,8 +733,30 @@ export default function TextEditor() {
 
           </div>
 
+          {/* Custom Instruction */}
+          <div style={{ padding: '14px 24px 0', borderTop: '1px solid var(--border-primary)' }}>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 6 }}>
+              {t('customInstruction')}
+            </label>
+            <textarea
+              value={customInstruction}
+              onChange={(e) => setCustomInstruction(e.target.value)}
+              placeholder={t('customInstructionPlaceholder')}
+              rows={2}
+              style={{
+                width: '100%', padding: '8px 12px', fontSize: 13,
+                border: '1px solid var(--border-primary)', borderRadius: 'var(--radius)',
+                background: 'var(--bg-primary)', color: 'var(--text-primary)',
+                outline: 'none', resize: 'vertical', boxSizing: 'border-box',
+                lineHeight: 1.5, fontFamily: 'inherit', transition: 'border-color 0.15s',
+              }}
+              onFocus={(e) => (e.target.style.borderColor = 'var(--accent)')}
+              onBlur={(e) => (e.target.style.borderColor = 'var(--border-primary)')}
+            />
+          </div>
+
           {/* Analyze Button */}
-          <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-primary)' }}>
+          <div style={{ padding: '12px 24px 16px' }}>
             <button onClick={handleAnalyze} disabled={isAnalyzing}
               className={isAnalyzing ? 'animate-shimmer' : 'animate-pulse-accent'}
               style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
