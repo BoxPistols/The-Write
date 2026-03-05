@@ -10,7 +10,7 @@ import { t, locale } from '../locales';
 import { AVAILABLE_MODELS, DEFAULT_MODEL_ID, PROVIDERS, getModel } from '../config/models';
 import { SAMPLES } from '../config/samples';
 import { useUndoRedo } from '../hooks/useUndoRedo';
-import { isModKey, formatShortcut } from '../utils/platform';
+import { isModKey, formatShortcut, loadShortcuts, saveShortcuts, shortcutFromEvent, matchShortcut, DEFAULT_SHORTCUTS } from '../utils/platform';
 
 const JP_SANS_FALLBACK = "'Noto Sans JP', 'BIZ UDPGothic', 'Yu Gothic', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Meiryo', 'Segoe UI', -apple-system, sans-serif";
 const JP_SERIF_FALLBACK = "'Noto Serif JP', 'BIZ UDPMincho', 'Hiragino Mincho ProN', 'Yu Mincho', 'MS PMincho', serif";
@@ -372,6 +372,8 @@ export default function TextEditor() {
   const [keyVisibility, setKeyVisibility] = useState({});
   const [testResults, setTestResults] = useState({});
   const [lastUsage, setLastUsage] = useState(null);
+  const [shortcuts, setShortcuts] = useState(loadShortcuts);
+  const [recordingAction, setRecordingAction] = useState(null); // ショートカット記録中のアクション名
   const editorRef = useRef(null);
   const savedSelectionRef = useRef(null);
   const isComposingRef = useRef(false); // IME変換中フラグ
@@ -669,6 +671,9 @@ export default function TextEditor() {
       // IME変換中は無効
       if (isComposingRef.current) return;
 
+      // ショートカット記録モード中は記録処理に委譲（後述のuseEffectで処理）
+      if (recordingAction) return;
+
       // テキスト入力系要素にフォーカスがある場合、Mod系のみ処理
       const tag = document.activeElement?.tagName;
       const isEditable = document.activeElement?.isContentEditable;
@@ -676,14 +681,14 @@ export default function TextEditor() {
 
       if (!isModKey(e)) return; // モディファイアなしは常にスキップ
 
-      // Mod+Z: Undo (入力欄でもエディタならカスタムUndo)
-      if (e.key === 'z' && !e.shiftKey && isEditable) {
+      // Undo (入力欄でもエディタならカスタムUndo)
+      if (matchShortcut(e, shortcuts.undo) && isEditable) {
         e.preventDefault();
         undo();
         return;
       }
-      // Mod+Shift+Z / Mod+Y: Redo (入力欄でもエディタならカスタムRedo)
-      if ((e.key === 'z' && e.shiftKey && isEditable) || (e.key === 'y' && isEditable)) {
+      // Redo (入力欄でもエディタならカスタムRedo)
+      if (matchShortcut(e, shortcuts.redo) && isEditable) {
         e.preventDefault();
         redo();
         return;
@@ -692,20 +697,20 @@ export default function TextEditor() {
       // input/textarea 内では以降のショートカットは無効
       if (isInputField && !isEditable) return;
 
-      // Mod+Enter: 分析 & AI文体修正
-      if (e.key === 'Enter') {
+      // 分析 & AI文体修正
+      if (matchShortcut(e, shortcuts.runAll)) {
         e.preventDefault();
         handleRunAll();
         return;
       }
-      // Mod+Shift+E: 分析のみ
-      if (e.key === 'e' && e.shiftKey) {
+      // 分析のみ
+      if (matchShortcut(e, shortcuts.analyze)) {
         e.preventDefault();
         handleAnalyze();
         return;
       }
-      // Mod+Shift+J: AI文体修正のみ
-      if (e.key === 'j' && e.shiftKey) {
+      // AI文体修正のみ
+      if (matchShortcut(e, shortcuts.rewrite)) {
         e.preventDefault();
         handleRewrite();
         return;
@@ -723,7 +728,26 @@ export default function TextEditor() {
       window.removeEventListener('compositionstart', handleCompositionStart);
       window.removeEventListener('compositionend', handleCompositionEnd);
     };
-  }, [undo, redo, handleRunAll, handleAnalyze, handleRewrite]);
+  }, [undo, redo, handleRunAll, handleAnalyze, handleRewrite, shortcuts, recordingAction]);
+
+  // ─── ショートカット記録モード ─────────────────────
+  useEffect(() => {
+    if (!recordingAction) return;
+    const handleRecord = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // Escで記録キャンセル
+      if (e.key === 'Escape') { setRecordingAction(null); return; }
+      const sc = shortcutFromEvent(e);
+      if (!sc) return; // モディファイアキー単体は無視
+      const updated = { ...shortcuts, [recordingAction]: sc };
+      setShortcuts(updated);
+      saveShortcuts(updated);
+      setRecordingAction(null);
+    };
+    window.addEventListener('keydown', handleRecord, true);
+    return () => window.removeEventListener('keydown', handleRecord, true);
+  }, [recordingAction, shortcuts]);
 
   const closeDropdown = useCallback(() => setOpenDropdown(null), []);
 
@@ -857,10 +881,10 @@ export default function TextEditor() {
           </Dropdown>
 
           {/* Undo / Redo */}
-          <TBtn onClick={undo} title={`Undo (${formatShortcut(['mod', 'z'])})`}>
+          <TBtn onClick={undo} title={`Undo (${formatShortcut(shortcuts.undo.parts)})`}>
             <Undo2 style={{ width: 16, height: 16, opacity: canUndo() ? 1 : 0.3 }} />
           </TBtn>
-          <TBtn onClick={redo} title={`Redo (${formatShortcut(['mod', 'shift', 'z'])})`}>
+          <TBtn onClick={redo} title={`Redo (${formatShortcut(shortcuts.redo.parts)})`}>
             <Redo2 style={{ width: 16, height: 16, opacity: canRedo() ? 1 : 0.3 }} />
           </TBtn>
 
@@ -1059,7 +1083,7 @@ export default function TextEditor() {
                 ? (<><Loader2 style={{ width: 16, height: 16 }} className="animate-spin-slow" />
                     {isAnalyzing && isRewriting ? `${t('analyzing')} & ${t('rewriting')}` : isAnalyzing ? t('analyzing') : t('rewriting')}</>)
                 : (<><Sparkles style={{ width: 15, height: 15 }} /><Wand2 style={{ width: 15, height: 15 }} />{t('runAll')}
-                    <span style={{ fontSize: 11, opacity: 0.7, marginLeft: 4 }}>{formatShortcut(['mod', 'enter'])}</span></>)}
+                    <span style={{ fontSize: 11, opacity: 0.7, marginLeft: 4 }}>{formatShortcut(shortcuts.runAll.parts)}</span></>)}
             </button>
             {/* 分析のみ / AI文体修正のみ */}
             <div style={{ display: 'flex', gap: 8 }}>
@@ -1074,7 +1098,7 @@ export default function TextEditor() {
                 {isAnalyzing
                   ? (<><Loader2 style={{ width: 14, height: 14 }} className="animate-spin-slow" />{t('analyzing')}</>)
                   : (<><Sparkles style={{ width: 14, height: 14 }} />{t('analyzeText')}
-                      <span style={{ fontSize: 10, opacity: 0.6 }}>{formatShortcut(['mod', 'shift', 'e'])}</span></>)}
+                      <span style={{ fontSize: 10, opacity: 0.6 }}>{formatShortcut(shortcuts.analyze.parts)}</span></>)}
               </button>
               <button onClick={handleRewrite} disabled={isRewriting}
                 style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
@@ -1087,7 +1111,7 @@ export default function TextEditor() {
                 {isRewriting
                   ? (<><Loader2 style={{ width: 14, height: 14 }} className="animate-spin-slow" />{t('rewriting')}</>)
                   : (<><Wand2 style={{ width: 14, height: 14 }} />{t('rewriteAI')}
-                      <span style={{ fontSize: 10, opacity: 0.6 }}>{formatShortcut(['mod', 'shift', 'j'])}</span></>)}
+                      <span style={{ fontSize: 10, opacity: 0.6 }}>{formatShortcut(shortcuts.rewrite.parts)}</span></>)}
               </button>
             </div>
           </div>
@@ -1306,6 +1330,44 @@ export default function TextEditor() {
                 )}
               </div>
             ))}
+
+            {/* ─── Keyboard Shortcuts ─────────────── */}
+            <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
+              <h4 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                {t('shortcuts')}
+              </h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {[
+                  { action: 'runAll', label: t('shortcutRunAll') },
+                  { action: 'analyze', label: t('shortcutAnalyze') },
+                  { action: 'rewrite', label: t('shortcutRewrite') },
+                  { action: 'undo', label: t('shortcutUndo') },
+                  { action: 'redo', label: t('shortcutRedo') },
+                ].map(({ action, label }) => (
+                  <div key={action} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', background: 'var(--bg-primary)', borderRadius: 'var(--radius)', border: '1px solid var(--border-subtle)' }}>
+                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{label}</span>
+                    <button
+                      onClick={() => setRecordingAction(recordingAction === action ? null : action)}
+                      style={{
+                        padding: '4px 12px', fontSize: 12, fontWeight: 600,
+                        fontFamily: 'ui-monospace, monospace',
+                        borderRadius: 'var(--radius)',
+                        border: `1px solid ${recordingAction === action ? 'var(--accent)' : 'var(--border-primary)'}`,
+                        background: recordingAction === action ? 'var(--accent-soft)' : 'var(--bg-secondary)',
+                        color: recordingAction === action ? 'var(--accent)' : 'var(--text-primary)',
+                        cursor: 'pointer', transition: 'all 0.15s', minWidth: 100, textAlign: 'center',
+                      }}>
+                      {recordingAction === action ? t('shortcutRecording') : formatShortcut(shortcuts[action].parts)}
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => { setShortcuts({ ...DEFAULT_SHORTCUTS }); saveShortcuts(DEFAULT_SHORTCUTS); }}
+                style={{ marginTop: 8, padding: '4px 10px', fontSize: 11, color: 'var(--text-muted)', background: 'none', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius)', cursor: 'pointer' }}>
+                {t('shortcutReset')}
+              </button>
+            </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
               <button onClick={() => { setClientKeys({}); }}
