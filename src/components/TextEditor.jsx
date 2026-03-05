@@ -698,14 +698,14 @@ export default function TextEditor() {
         handleRunAll();
         return;
       }
-      // Mod+Shift+A: 分析のみ
-      if (e.key === 'a' && e.shiftKey) {
+      // Mod+Shift+E: 分析のみ
+      if (e.key === 'e' && e.shiftKey) {
         e.preventDefault();
         handleAnalyze();
         return;
       }
-      // Mod+Shift+R: AI文体修正のみ
-      if (e.key === 'r' && e.shiftKey) {
+      // Mod+Shift+J: AI文体修正のみ
+      if (e.key === 'j' && e.shiftKey) {
         e.preventDefault();
         handleRewrite();
         return;
@@ -1074,7 +1074,7 @@ export default function TextEditor() {
                 {isAnalyzing
                   ? (<><Loader2 style={{ width: 14, height: 14 }} className="animate-spin-slow" />{t('analyzing')}</>)
                   : (<><Sparkles style={{ width: 14, height: 14 }} />{t('analyzeText')}
-                      <span style={{ fontSize: 10, opacity: 0.6 }}>{formatShortcut(['mod', 'shift', 'a'])}</span></>)}
+                      <span style={{ fontSize: 10, opacity: 0.6 }}>{formatShortcut(['mod', 'shift', 'e'])}</span></>)}
               </button>
               <button onClick={handleRewrite} disabled={isRewriting}
                 style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
@@ -1087,7 +1087,7 @@ export default function TextEditor() {
                 {isRewriting
                   ? (<><Loader2 style={{ width: 14, height: 14 }} className="animate-spin-slow" />{t('rewriting')}</>)
                   : (<><Wand2 style={{ width: 14, height: 14 }} />{t('rewriteAI')}
-                      <span style={{ fontSize: 10, opacity: 0.6 }}>{formatShortcut(['mod', 'shift', 'r'])}</span></>)}
+                      <span style={{ fontSize: 10, opacity: 0.6 }}>{formatShortcut(['mod', 'shift', 'j'])}</span></>)}
               </button>
             </div>
           </div>
