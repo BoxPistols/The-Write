@@ -19,8 +19,7 @@ export const AVAILABLE_MODELS = [
   { id: 'claude-sonnet-4-5-20250929', provider: 'anthropic', name: 'Claude 4.5 Sonnet', description: 'バランス型', inputPrice: 3.00, outputPrice: 15.00, speed: 3, quality: 4, secsPerKChar: 10 },
 
   // Google Gemini
-  { id: 'gemini-2.5-flash-lite', provider: 'gemini', name: 'Gemini 2.5 Flash Lite', description: '最速・最安', inputPrice: 0.00, outputPrice: 0.00, speed: 5, quality: 2, secsPerKChar: 2 },
-  { id: 'gemini-2.5-flash', provider: 'gemini', name: 'Gemini 2.5 Flash', description: 'バランス型', inputPrice: 0.10, outputPrice: 0.40, speed: 4, quality: 3, secsPerKChar: 4 },
+  { id: 'gemini-2.5-flash', provider: 'gemini', name: 'Gemini 2.5 Flash', description: '最速・最安', inputPrice: 0.10, outputPrice: 0.40, speed: 5, quality: 3, secsPerKChar: 4 },
 ];
 
 /**
@@ -47,7 +46,7 @@ export function autoSelectModel(charCount, isAvailable) {
 
 // .envで VITE_DEFAULT_MODEL を指定可能（例: VITE_DEFAULT_MODEL=gpt-4.1-nano）
 const envDefault = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEFAULT_MODEL;
-export const DEFAULT_MODEL_ID = (envDefault && AVAILABLE_MODELS.some((m) => m.id === envDefault)) ? envDefault : 'gemini-2.5-flash-lite';
+export const DEFAULT_MODEL_ID = (envDefault && AVAILABLE_MODELS.some((m) => m.id === envDefault)) ? envDefault : 'gemini-2.5-flash';
 
 export const getModel = (id) => AVAILABLE_MODELS.find((m) => m.id === id);
 export const getProvider = (id) => getModel(id)?.provider;

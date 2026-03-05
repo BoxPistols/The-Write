@@ -28,7 +28,6 @@ const MODELS = [
   { id: 'gpt-4.1-mini', provider: 'openai' },
   { id: 'claude-haiku-4-5-20251001', provider: 'anthropic' },
   { id: 'claude-sonnet-4-5-20250929', provider: 'anthropic' },
-  { id: 'gemini-2.5-flash-lite', provider: 'gemini' },
   { id: 'gemini-2.5-flash', provider: 'gemini' },
 ];
 
