@@ -4,10 +4,13 @@ import {
   Bold, Italic, Underline, Link, AlignLeft, AlignCenter,
   AlignRight, List, ListOrdered, Outdent, Indent,
   Type, Highlighter, MoveVertical, MoveHorizontal, RotateCcw, Feather, ChevronDown, Settings, Key, Eye, EyeOff, Wand2, Maximize2, Minimize2,
+  Undo2, Redo2,
 } from 'lucide-react';
 import { t, locale } from '../locales';
 import { AVAILABLE_MODELS, DEFAULT_MODEL_ID, PROVIDERS, getModel } from '../config/models';
 import { SAMPLES } from '../config/samples';
+import { useUndoRedo } from '../hooks/useUndoRedo';
+import { isModKey, formatShortcut } from '../utils/platform';
 
 const JP_SANS_FALLBACK = "'Noto Sans JP', 'BIZ UDPGothic', 'Yu Gothic', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Meiryo', 'Segoe UI', -apple-system, sans-serif";
 const JP_SERIF_FALLBACK = "'Noto Serif JP', 'BIZ UDPMincho', 'Hiragino Mincho ProN', 'Yu Mincho', 'MS PMincho', serif";
@@ -371,6 +374,7 @@ export default function TextEditor() {
   const [lastUsage, setLastUsage] = useState(null);
   const editorRef = useRef(null);
   const savedSelectionRef = useRef(null);
+  const isComposingRef = useRef(false); // IME変換中フラグ
 
   const refreshProviders = useCallback(() => {
     fetch('/api/providers').then((r) => r.json()).then(setAvailableProviders).catch(() => {});
@@ -427,17 +431,21 @@ export default function TextEditor() {
   }, []);
 
   useEffect(() => {
+    let snapshotTimer = null;
     const handleInput = () => {
       if (!editorRef.current) return;
       setCharCount((editorRef.current.innerText || '').trim().length);
       saveEditorContent({ html: editorRef.current.innerHTML });
+      // 入力操作のスナップショットをデバウンス（1秒間隔）
+      clearTimeout(snapshotTimer);
+      snapshotTimer = setTimeout(() => snapshot(), 1000);
     };
     const editor = editorRef.current;
     if (editor) {
       editor.addEventListener('input', handleInput);
-      return () => editor.removeEventListener('input', handleInput);
+      return () => { editor.removeEventListener('input', handleInput); clearTimeout(snapshotTimer); };
     }
-  }, []);
+  }, [snapshot]);
 
   const execCmd = (command, value = null) => {
     document.execCommand(command, false, value);
@@ -463,7 +471,10 @@ export default function TextEditor() {
     saveEditorContent({ html: editorRef.current.innerHTML });
   }, []);
 
+  const { snapshot, undo, redo, canUndo, canRedo } = useUndoRedo(editorRef, refreshEditorContent);
+
   const resetEditorContent = useCallback(() => {
+    snapshot();
     if (editorRef.current) editorRef.current.innerHTML = '';
     setSuggestions([]);
     setLastUsage(null);
@@ -471,7 +482,7 @@ export default function TextEditor() {
     setOpenDropdown(null);
     setCharCount(0);
     saveEditorContent({ html: '' });
-  }, []);
+  }, [snapshot]);
 
   const rejectAllSuggestions = useCallback(() => {
     setSuggestions((prev) => prev.map((s) => (s.status === 'pending' ? { ...s, status: 'rejected' } : s)));
@@ -499,7 +510,7 @@ export default function TextEditor() {
     return !!availableProviders[provider] || !!clientKeys[provider];
   };
 
-  const handleAnalyze = async () => {
+  const handleAnalyze = useCallback(async () => {
     const text = editorRef.current?.innerText?.trim();
     if (!text) { alert(t('pleaseEnterText')); return; }
 
@@ -531,9 +542,9 @@ export default function TextEditor() {
       alert(t('failedToAnalyze'));
     }
     finally { setIsAnalyzing(false); }
-  };
+  }, [selectedModel, clientKeys, customInstruction]);
 
-  const handleRewrite = async () => {
+  const handleRewrite = useCallback(async () => {
     const text = editorRef.current?.innerText?.trim();
     if (!text) { alert(t('pleaseEnterText')); return; }
 
@@ -548,9 +559,9 @@ export default function TextEditor() {
       console.error('Rewrite error:', e);
       alert(t('failedToRewrite'));
     } finally { setIsRewriting(false); }
-  };
+  }, [selectedModel, clientKeys]);
 
-  const handleRunAll = async () => {
+  const handleRunAll = useCallback(async () => {
     const text = editorRef.current?.innerText?.trim();
     if (!text) { alert(t('pleaseEnterText')); return; }
 
@@ -593,19 +604,21 @@ export default function TextEditor() {
     // 両方完了後にリライト結果ダイアログを表示
     // 先に提案を確認 → その後リライト結果を確認、という順序になる
     if (pendingRewrite) setRewriteResult(pendingRewrite);
-  };
+  }, [selectedModel, clientKeys, customInstruction]);
 
   const applyRewrite = useCallback(() => {
     if (rewriteResult && editorRef.current) {
+      snapshot(); // Undo用にスナップショット
       editorRef.current.innerText = rewriteResult.rewritten;
       refreshEditorContent();
       setSuggestions([]);
     }
     setRewriteResult(null);
-  }, [rewriteResult, refreshEditorContent]);
+  }, [rewriteResult, refreshEditorContent, snapshot]);
 
   const applySuggestion = useCallback((suggestion) => {
     if (!editorRef.current) return;
+    snapshot(); // Undo用にスナップショット
     const walker = document.createTreeWalker(editorRef.current, NodeFilter.SHOW_TEXT);
     let node;
     while ((node = walker.nextNode())) {
@@ -621,7 +634,7 @@ export default function TextEditor() {
     }
     refreshEditorContent();
     setSuggestions((prev) => prev.map((s) => (s.id === suggestion.id ? { ...s, status: 'accepted' } : s)));
-  }, [refreshEditorContent]);
+  }, [refreshEditorContent, snapshot]);
 
   const dismissSuggestion = useCallback((suggestion) => {
     setSuggestions((prev) => prev.map((s) => (s.id === suggestion.id ? { ...s, status: 'rejected' } : s)));
@@ -633,6 +646,7 @@ export default function TextEditor() {
 
   const loadSample = (text) => {
     if (editorRef.current) {
+      snapshot();
       editorRef.current.innerText = text;
       refreshEditorContent();
       setSuggestions([]);
@@ -647,6 +661,69 @@ export default function TextEditor() {
     available: isProviderAvailable(pKey),
     models: AVAILABLE_MODELS.filter((m) => m.provider === pKey),
   }));
+
+  // ─── ショートカットキー ─────────────────────
+  // 文字入力中（contentEditable, input, textarea, IME変換中）は無効
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // IME変換中は無効
+      if (isComposingRef.current) return;
+
+      // テキスト入力系要素にフォーカスがある場合、Mod系のみ処理
+      const tag = document.activeElement?.tagName;
+      const isEditable = document.activeElement?.isContentEditable;
+      const isInputField = tag === 'INPUT' || tag === 'TEXTAREA' || isEditable;
+
+      if (!isModKey(e)) return; // モディファイアなしは常にスキップ
+
+      // Mod+Z: Undo (入力欄でもエディタならカスタムUndo)
+      if (e.key === 'z' && !e.shiftKey && isEditable) {
+        e.preventDefault();
+        undo();
+        return;
+      }
+      // Mod+Shift+Z / Mod+Y: Redo (入力欄でもエディタならカスタムRedo)
+      if ((e.key === 'z' && e.shiftKey && isEditable) || (e.key === 'y' && isEditable)) {
+        e.preventDefault();
+        redo();
+        return;
+      }
+
+      // input/textarea 内では以降のショートカットは無効
+      if (isInputField && !isEditable) return;
+
+      // Mod+Enter: 分析 & AI文体修正
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleRunAll();
+        return;
+      }
+      // Mod+Shift+A: 分析のみ
+      if (e.key === 'a' && e.shiftKey) {
+        e.preventDefault();
+        handleAnalyze();
+        return;
+      }
+      // Mod+Shift+R: AI文体修正のみ
+      if (e.key === 'r' && e.shiftKey) {
+        e.preventDefault();
+        handleRewrite();
+        return;
+      }
+    };
+
+    const handleCompositionStart = () => { isComposingRef.current = true; };
+    const handleCompositionEnd = () => { isComposingRef.current = false; };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('compositionstart', handleCompositionStart);
+    window.addEventListener('compositionend', handleCompositionEnd);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('compositionstart', handleCompositionStart);
+      window.removeEventListener('compositionend', handleCompositionEnd);
+    };
+  }, [undo, redo, handleRunAll, handleAnalyze, handleRewrite]);
 
   const closeDropdown = useCallback(() => setOpenDropdown(null), []);
 
@@ -778,6 +855,14 @@ export default function TextEditor() {
               </div>
             </div>
           </Dropdown>
+
+          {/* Undo / Redo */}
+          <TBtn onClick={undo} title={`Undo (${formatShortcut(['mod', 'z'])})`}>
+            <Undo2 style={{ width: 16, height: 16, opacity: canUndo() ? 1 : 0.3 }} />
+          </TBtn>
+          <TBtn onClick={redo} title={`Redo (${formatShortcut(['mod', 'shift', 'z'])})`}>
+            <Redo2 style={{ width: 16, height: 16, opacity: canRedo() ? 1 : 0.3 }} />
+          </TBtn>
 
           {/* Reset editor settings */}
           <TBtn onClick={resetEditorSettings} title={t('resetSettings')}>
@@ -973,7 +1058,8 @@ export default function TextEditor() {
               {(isAnalyzing || isRewriting)
                 ? (<><Loader2 style={{ width: 16, height: 16 }} className="animate-spin-slow" />
                     {isAnalyzing && isRewriting ? `${t('analyzing')} & ${t('rewriting')}` : isAnalyzing ? t('analyzing') : t('rewriting')}</>)
-                : (<><Sparkles style={{ width: 15, height: 15 }} /><Wand2 style={{ width: 15, height: 15 }} />{t('runAll')}</>)}
+                : (<><Sparkles style={{ width: 15, height: 15 }} /><Wand2 style={{ width: 15, height: 15 }} />{t('runAll')}
+                    <span style={{ fontSize: 11, opacity: 0.7, marginLeft: 4 }}>{formatShortcut(['mod', 'enter'])}</span></>)}
             </button>
             {/* 分析のみ / AI文体修正のみ */}
             <div style={{ display: 'flex', gap: 8 }}>
@@ -987,7 +1073,8 @@ export default function TextEditor() {
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-primary)'; e.currentTarget.style.background = 'transparent'; }}>
                 {isAnalyzing
                   ? (<><Loader2 style={{ width: 14, height: 14 }} className="animate-spin-slow" />{t('analyzing')}</>)
-                  : (<><Sparkles style={{ width: 14, height: 14 }} />{t('analyzeText')}</>)}
+                  : (<><Sparkles style={{ width: 14, height: 14 }} />{t('analyzeText')}
+                      <span style={{ fontSize: 10, opacity: 0.6 }}>{formatShortcut(['mod', 'shift', 'a'])}</span></>)}
               </button>
               <button onClick={handleRewrite} disabled={isRewriting}
                 style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
@@ -999,7 +1086,8 @@ export default function TextEditor() {
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-primary)'; e.currentTarget.style.background = 'transparent'; }}>
                 {isRewriting
                   ? (<><Loader2 style={{ width: 14, height: 14 }} className="animate-spin-slow" />{t('rewriting')}</>)
-                  : (<><Wand2 style={{ width: 14, height: 14 }} />{t('rewriteAI')}</>)}
+                  : (<><Wand2 style={{ width: 14, height: 14 }} />{t('rewriteAI')}
+                      <span style={{ fontSize: 10, opacity: 0.6 }}>{formatShortcut(['mod', 'shift', 'r'])}</span></>)}
               </button>
             </div>
           </div>
