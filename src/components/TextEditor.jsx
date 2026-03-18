@@ -366,7 +366,16 @@ export default function TextEditor() {
   const [openDropdown, setOpenDropdown] = useState(null);
   const [copied, setCopied] = useState(false);
   const [selectedModel, setSelectedModel] = useState(() => {
-    try { return localStorage.getItem('wa-model') || DEFAULT_MODEL_ID; } catch { return DEFAULT_MODEL_ID; }
+    try {
+      const saved = localStorage.getItem('wa-model');
+      if (!saved) return DEFAULT_MODEL_ID;
+      // 旧モデル ID が残存していたらデフォルトにリセット
+      if (saved !== 'auto' && !AVAILABLE_MODELS.some((m) => m.id === saved)) {
+        localStorage.setItem('wa-model', DEFAULT_MODEL_ID);
+        return DEFAULT_MODEL_ID;
+      }
+      return saved;
+    } catch { return DEFAULT_MODEL_ID; }
   });
   const [availableProviders, setAvailableProviders] = useState({});
   // Client-side API keys (stored in localStorage, sent with requests as fallback)

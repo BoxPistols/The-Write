@@ -33,6 +33,9 @@ export function resolveKey(provider, clientKeys) {
 async function callOpenAI(model, messages, apiKey, maxTokens) {
   if (!apiKey) throw new Error('OPENAI_API_KEY is not set');
 
+  // GPT-5.4 nano はトークン上限 4000（コスト抑制）、それ以外は 16000
+  const defaultMax = model.includes('nano') ? 4000 : 16000;
+
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -41,7 +44,7 @@ async function callOpenAI(model, messages, apiKey, maxTokens) {
     },
     body: JSON.stringify({
       model,
-      max_completion_tokens: maxTokens || 16000,
+      max_completion_tokens: maxTokens || defaultMax,
       messages,
     }),
   });

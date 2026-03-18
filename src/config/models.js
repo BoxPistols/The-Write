@@ -9,8 +9,8 @@ export const PROVIDERS = {
 // secsPerKChar: 1000文字あたりの推定処理秒数（プログレス表示用）
 export const AVAILABLE_MODELS = [
   // OpenAI
-  { id: 'gpt-5.4-nano', provider: 'openai', name: 'GPT-5.4 Nano', description: '最速・最安', inputPrice: 0.10, outputPrice: 0.40, speed: 5, quality: 3, secsPerKChar: 3 },
-  { id: 'gpt-5.4-mini', provider: 'openai', name: 'GPT-5.4 Mini', description: '高品質', inputPrice: 0.40, outputPrice: 1.60, speed: 4, quality: 4, secsPerKChar: 5 },
+  { id: 'gpt-5.4-nano', provider: 'openai', name: 'GPT-5.4 Nano', description: '最速・最安', inputPrice: 0.05, outputPrice: 0.20, speed: 5, quality: 3, secsPerKChar: 3 },
+  { id: 'gpt-5.4-mini', provider: 'openai', name: 'GPT-5.4 Mini', description: '高品質', inputPrice: 0.30, outputPrice: 1.20, speed: 4, quality: 4, secsPerKChar: 5 },
 
   // Anthropic
   { id: 'claude-haiku-4-5-20251001', provider: 'anthropic', name: 'Claude 4.5 Haiku', description: '最速・最安', inputPrice: 0.80, outputPrice: 4.00, speed: 5, quality: 3, secsPerKChar: 4 },
@@ -42,7 +42,7 @@ export function autoSelectModel(charCount, isAvailable) {
   return sorted[0]?.id || DEFAULT_MODEL_ID;
 }
 
-// .envで VITE_DEFAULT_MODEL を指定可能（例: VITE_DEFAULT_MODEL=gpt-4.1-nano）
+// .envで VITE_DEFAULT_MODEL を指定可能（例: VITE_DEFAULT_MODEL=gpt-5.4-nano）
 const envDefault = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEFAULT_MODEL;
 export const DEFAULT_MODEL_ID = (envDefault && AVAILABLE_MODELS.some((m) => m.id === envDefault)) ? envDefault : 'gpt-5.4-nano';
 
