@@ -80,19 +80,58 @@ const analyzeViaProxy = async (model, text, clientKeys, customInstruction = '') 
   const customPart = customInstruction.trim()
     ? `\n\nAdditional instructions from the user: ${customInstruction.trim()}`
     : '';
-  const userPrompt = `You are a professional writing assistant. Analyze the following text and provide suggestions for improvement.${customPart}
+  const isJa = locale.startsWith('ja');
+  const userPrompt = isJa
+    ? `あなたはプロの日本語編集者です。以下の文章を分析し、改善提案を提示してください。${customPart}
+
+各提案はJSON配列で、各要素は以下の形式にしてください：
+- "type": "grammar", "spelling", "punctuation", "style", "clarity", "ai-writing" のいずれか
+- "original": 変更対象の原文（完全一致）
+- "suggestion": 改善後のテキスト
+- "explanation": 変更理由の簡潔な説明（日本語で）
+
+"ai-writing" タイプは、AI生成文に特有のパターンに使用してください：
+- 構造の定型化：「以下では〜を説明します」「結論から言うと」等の前置き宣言、STEP/ステップによる構造化
+- 「さらに」「また」「したがって」「そのため」「加えて」等の接続詞の過剰使用
+- 同じ語尾の3回以上の連続（「〜です。〜です。〜です。」等）
+- 「最適化」「本質」「価値を最大化」「エコシステム」「ランドスケープ」等の抽象的バズワード
+- 「一概には言えませんが」「場合によります」等の過度なヘッジング（逃げ表現）
+- 「参考になれば幸いです」「ぜひ活用してみてください」等の定型的な締め
+- 「非常に重要です」「大きなメリット」等の根拠のない評価語
+- 「〜ではなく〜です」（not A but B）構文の多用
+- 「羅針盤」「土台」「エンジン」「設計図」等の使い古された比喩
+- 太字ヘッダー＋コロン＋説明文の箇条書きパターン（インラインヘッダー）
+- 「〜することができます」等の冗長な表現（→「〜できます」）
+- Markdown記法の混入（**太字**、#見出しなど）
+- —（emダッシュ）の多用
+- 3つの並列要素を無理に作る（ルール・オブ・スリー）
+ai-writing の提案では、人間が書いたように自然な日本語に書き換えてください。
+
+有効なJSON配列のみを出力してください。それ以外のテキストは一切出力しないでください。
+
+分析対象の文章：
+${text}`
+    : `You are a professional writing assistant. Analyze the following text and provide suggestions for improvement.${customPart}
 
 For each suggestion, provide a JSON array where each item has:
 - "type": one of "grammar", "spelling", "punctuation", "style", "clarity", "ai-writing"
 - "original": the exact text that should be changed
 - "suggestion": the improved text
-- "explanation": brief explanation of the change (in ${locale.startsWith('ja') ? 'Japanese' : 'English'})
+- "explanation": brief explanation of the change (in English)
 
 Use "ai-writing" type for patterns typical of AI-generated text, including:
 - Formulaic structure: long preambles, announcing structure in body text, STEP formatting
 - Overuse of abstract buzzwords, hedging language, or cliché metaphors
 - Repetitive sentence-ending patterns or excessive conjunctions
-- Formulaic closings ("I hope this helps", "参考になれば幸いです")
+- Formulaic closings ("I hope this helps", "Feel free to reach out")
+- Inline-header bullet lists (bold header + colon + description)
+- Em dash (—) overuse
+- Negative parallelisms ("It's not just X; it's Y")
+- Rule of three overuse (forcing ideas into triplets)
+- Elegant variation / excessive synonym cycling
+- Sycophantic or overly agreeable tone
+- Filler phrases ("In order to", "Due to the fact that")
+- Generic positive conclusions ("The future looks bright")
 For ai-writing suggestions, rewrite to sound more natural and human.
 
 Respond ONLY with a valid JSON array. No other text.
@@ -128,24 +167,43 @@ const rewriteViaProxy = async (model, text, clientKeys) => {
 - Markdown記法を使わない（**太字**のアスタリスク、#見出しなど一切禁止）
 - 「」のカギ括弧による強調を削り、文脈に溶かす
 - （）による補足を最小限にし、必要なら文に組み込む
-- 「： 」（コロン直後に半角スペース）を使わない
+- 「： 」（コロン直後に半角スペース）を使わない。太字ヘッダー＋コロン＋説明文の箇条書きパターンも禁止
 - ／で概念を並列しない（「戦略／実行」→「戦略と実行」など）
-- —（em dash）を言い換えに使わない
+- —（emダッシュ）を言い換えに使わない
+- 絵文字を装飾的に使わない
 
-【厳守ルール：文体・内容】
+【厳守ルール：AI特有パターンの排除】
+- 「さらに」「また」「したがって」「そのため」「結果として」「加えて」「それに伴い」等の接続詞を削るか最小限にする
+- 「最適化」「本質」「価値を最大化」「エコシステム」「ランドスケープ」「パラダイム」「シナジー」「レバレッジ」等の抽象バズワードを、何がどうなるかが伝わる具体表現に置き換える
+- 「重要な役割を果たす」「〜として機能する」「〜の象徴となっている」等の意義の水増し表現を削る
+- 「〜を象徴しています」「〜を反映しています」「〜を体現しています」等の「-ing分析」的な浅い分析表現を避ける
+- not A but B 構文（「これは〜ではなく〜です」「〜だけでなく〜でもあります」）の多用をやめる
+- 3つの要素を無理に並べる「ルール・オブ・スリー」を避ける（「革新、創造、そして成長」等）
+- 同じ名詞を別の言い方で繰り返さない（「プロジェクト→取り組み→施策→本件」のような過剰な類語置換を避ける）
+- 「〜から〜まで」で実際に連続しない概念を並べない（「戦略から実行まで」等の偽レンジ）
+- 「〜することができます」「〜を行うことが可能です」等の冗長表現を簡潔にする（→「〜できます」「〜します」）
+
+【厳守ルール：文体・リズム】
 - 語尾は「〜です」「〜ます」「〜と思います」「〜だと考えられます」「〜ではないでしょうか」など丁寧体（です・ます調）を基本とする
 - 「〜だ。」「〜なのだ。」「〜である。」などの常体（だ・である調）は使わない
-- 同じ語尾の3連続以上を避け、「〜です」「〜でしょう」「〜かもしれません」「〜と言えます」などを混ぜてリズムをつける
-- 「以下では〜を説明します」「結論から言うと」などの前置き宣言を入れない
-- 「一概には言えませんが」「場合によります」「一般的に」などの逃げ文句を削る
-- 「最適化」「本質」「価値を最大化」「エコシステム」などの抽象語を、何がどうなるかが伝わる具体的な表現に置き換える
-- 「さらに」「また」「したがって」「そのため」「結果として」などの接続詞を削るか最小限にする
-- 短い文と長い文を混ぜ、文のリズムにメリハリをつける
-- 「参考になれば幸いです」「ぜひ活用してみてください」などの締めの定型句を入れない
+- 同じ語尾の3連続以上を避ける。「〜です」「〜でしょう」「〜かもしれません」「〜と言えます」「〜のようです」「〜になります」等を織り交ぜる
+- 体言止め（「〜という選択。」）も適度に使い、リズムに変化をつける
+- 短い文と長い文を意図的に混ぜる。段落の長さも不揃いにする
+- 主語が自明な場合は省略する（日本語として自然な省略）
+- 漢字が連続しすぎないよう、ひらがなに開ける箇所を意識する（「予め」→「あらかじめ」、「殆ど」→「ほとんど」、「更に」→「さらに」等）
+- 読点（、）は意味の区切りに打ち、均等配置を避ける
+
+【厳守ルール：内容・構成】
+- 「以下では〜を説明します」「結論から言うと」「本記事では」等の前置き宣言を入れない
+- 「一概には言えませんが」「場合によります」「一般的に」等の過度なヘッジング（逃げ表現）を削る
+- 「参考になれば幸いです」「ぜひ活用してみてください」「何かありましたらお気軽にどうぞ」等の定型的な締めを入れない
+- 「もちろんです！」「素晴らしいご質問ですね」等のおべっか表現を入れない
 - STEP/ステップによる構造宣言を避ける
-- 羅針盤・土台・エンジン・設計図などの使い古された比喩を使わない
-- not A but B 構文（「これは〜ではなく〜です」）の多用をやめる
-- 評価語（「非常に重要です」「大きなメリット」）には根拠を伴わせるか削る
+- 「課題と今後の展望」のようなテンプレ的なセクション構成を避ける
+- 羅針盤・土台・エンジン・設計図・架け橋等の使い古された比喩を使わない
+- 評価語（「非常に重要です」「大きなメリット」「画期的な」）には根拠を伴わせるか削る
+- 「〜における」「〜に関して」を多用しない。もっと短く言い換える
+- 漠然と明るい結論（「今後の発展が期待されます」「未来は明るい」）を避け、具体的に閉じる
 
 【出力形式】
 書き換え後の文章だけを出力する。説明・前置き・注意書きは一切出力しない。
@@ -159,23 +217,37 @@ Strictly follow these rules:
 
 Symbols & Formatting:
 - No Markdown (**bold** asterisks, # headings, etc.)
+- No inline-header bullet lists (bold header + colon + description pattern)
 - Minimize quotation marks used for emphasis; integrate into prose
 - Minimize parenthetical asides; incorporate naturally into sentences
 - No colon-space pattern (": " as labels or section headers)
 - No slashes (/) for parallel concepts; rephrase as prose
 - No em dashes (—) for rephrasing or clarification
+- No decorative emojis
+
+AI Pattern Removal:
+- Cut excessive conjunctions (furthermore, moreover, additionally, therefore, consequently)
+- Replace abstract buzzwords ("optimize", "maximize value", "ecosystem", "landscape", "paradigm", "leverage", "synergy") with concrete expressions
+- Remove undue significance claims ("stands as", "serves as", "pivotal moment", "marking a shift", "vital role")
+- Remove superficial "-ing" analyses ("highlighting", "symbolizing", "reflecting", "encompassing")
+- Remove negative parallelisms ("It's not just X; it's Y", "Not only... but also...")
+- Avoid rule-of-three overuse (forcing ideas into triplets)
+- Avoid elegant variation / excessive synonym cycling (don't keep replacing the same noun with different synonyms)
+- Remove false ranges ("from X to Y" where items aren't on a meaningful scale)
+- Remove filler phrases ("In order to", "Due to the fact that", "At this point in time", "has the ability to")
+- Remove sycophantic language ("Of course!", "Great question!", "Absolutely!")
+- No hyphenated compound overuse ("data-driven", "cross-functional", "client-facing")
 
 Content & Style:
 - No advance notices ("Here I will explain...", "In conclusion, ...", "Let me outline three points")
-- Remove hedging language ("generally speaking", "it depends", "in most cases")
-- Replace abstract buzzwords ("optimize", "maximize value", "ecosystem") with concrete expressions
-- Cut most conjunctions (furthermore, moreover, additionally, therefore)
+- Remove excessive hedging ("generally speaking", "it depends", "in most cases", "could potentially")
 - Avoid repeating the same sentence-ending pattern
-- Mix short and long sentences for varied rhythm
-- No formulaic closings ("I hope this helps", "Feel free to use this")
-- Avoid cliché metaphors (compass, foundation, engine, blueprint)
-- No "not A but B" construction overuse
+- Mix short and long sentences for varied rhythm. Vary paragraph lengths
+- No formulaic closings ("I hope this helps", "Feel free to reach out", "The future looks bright")
+- Avoid cliché metaphors (compass, foundation, engine, blueprint, bridge, tapestry)
+- No "Challenges and Future Prospects" template sections
 - Back up strong evaluations with evidence or cut them
+- No promotional language ("groundbreaking", "breathtaking", "stunning", "vibrant")
 
 Output: Output ONLY the rewritten text. No explanation, preamble, or notes.
 
