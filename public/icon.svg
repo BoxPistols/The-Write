@@ -5,6 +5,6 @@
       <stop offset="100%" stop-color="#6c5c98"/>
     </linearGradient>
   </defs>
-  <rect width="512" height="512" fill="url(#bg)"/>
-  <text x="50%" y="54%" text-anchor="middle" dominant-baseline="middle" font-family="'Cormorant Garamond', 'Georgia', serif" font-size="320" font-weight="600" fill="#fffdf8" letter-spacing="-8">W</text>
+  <rect width="512" height="512" rx="64" fill="url(#bg)"/>
+  <text x="256" y="256" text-anchor="middle" dy="0.35em" font-family="Georgia, 'Times New Roman', serif" font-size="320" font-weight="600" fill="#fffdf8" letter-spacing="-8">W</text>
 </svg>
