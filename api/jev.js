@@ -1,6 +1,11 @@
 import { systemOne, systemOneBatch } from './_jev.js';
 import { setCorsHeaders } from './_shared.js';
 
+/**
+ * 本文をJSONとして読む。実行環境によってBufferでも文字列でも来る。
+ * @param {import('http').IncomingMessage & {body?: unknown}} req
+ * @returns {object}
+ */
 const parseBody = (req) => {
   if (req.body == null) throw { status: 400, message: 'Missing JSON body' };
   if (Buffer.isBuffer(req.body)) {
@@ -21,10 +26,14 @@ const MAX_ITEMS = 64;
  * 単発は {state, questions}、まとめては {items:[{id,state,questions}]} で受ける。
  * どちらもanswersをそのまま返し、閾値の適用はしない。どこから指摘とみなすかは
  * src/config/jevQuestions.jsに置いてあり、サーバーとクライアントで二重に持たない。
+ *
+ * @param {object} body リクエスト本文
+ * @param {object} res レスポンス
+ * @param {AbortSignal} [signal] 呼び出し元が切れたことを下流へ伝える
  */
-export async function handleJev(body, res) {
+export async function handleJev(body, res, signal) {
   const clientKey = body?.clientKeys?.jev;
-  const common = { apiKey: clientKey, timeoutMs: body?.timeoutMs };
+  const common = { apiKey: clientKey, timeoutMs: body?.timeoutMs, signal };
 
   if (Array.isArray(body?.items)) {
     if (body.items.length > MAX_ITEMS) {
@@ -41,6 +50,46 @@ export async function handleJev(body, res) {
   return res.status(200).json(result);
 }
 
+/**
+ * 呼び出し元が切れたら、下流のJevへの往復も止める。
+ * 止めないと、誰も受け取らない応答のために外部APIを叩き続けることになる。
+ * まとめ投げでは残りの文まで投げに行く。
+ *
+ * @param {import('http').IncomingMessage} req
+ * @param {object} res
+ * @param {(signal: AbortSignal) => Promise<unknown>} run
+ */
+export async function withClientAbort(req, res, run) {
+  const controller = new AbortController();
+  let settled = false;
+  // 応答を返し切ったあとにも'close'は来る。そこで倒しても害は無いが、
+  // 中断として記録されるので、終わったかどうかを見てから倒す。
+  const onClose = () => { if (!settled) controller.abort(); };
+  req.on?.('close', onClose);
+
+  try {
+    return await run(controller.signal);
+  } finally {
+    settled = true;
+    req.off?.('close', onClose);
+  }
+}
+
+/** @param {import('http').IncomingMessage} req @param {object} res */
+export async function respondToJev(req, res) {
+  try {
+    return await withClientAbort(req, res, (signal) => handleJev(parseBody(req), res, signal));
+  } catch (err) {
+    // 呼び出し元が切れているので、書き込む先はもう無い。
+    if (err?.status === 499) return undefined;
+    console.error('Jev proxy error:', err.message || err);
+    const status = err.status || 500;
+    const message = status >= 500 ? 'Internal server error' : (typeof err.message === 'string' ? err.message : 'Internal server error');
+    return res.status(status).json({ error: message });
+  }
+}
+
+/** @param {import('http').IncomingMessage} req @param {object} res */
 export default async function handler(req, res) {
   setCorsHeaders(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -48,13 +97,5 @@ export default async function handler(req, res) {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
-
-  try {
-    return await handleJev(parseBody(req), res);
-  } catch (err) {
-    console.error('Jev proxy error:', err.message || err);
-    const status = err.status || 500;
-    const message = status >= 500 ? 'Internal server error' : (typeof err.message === 'string' ? err.message : 'Internal server error');
-    res.status(status).json({ error: message });
-  }
+  return respondToJev(req, res);
 }
