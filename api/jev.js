@@ -57,23 +57,26 @@ export async function handleJev(body, res, signal) {
  * 止めないと、誰も受け取らない応答のために外部APIを叩き続けることになる。
  * まとめ投げでは残りの文まで投げに行く。
  *
+ * 切れたことを知らせるのは res のほう。req の 'close' は本文を読み終えた
+ * 時点でも上がる（express.json()が読み切るため）。req で判断すると
+ * 正常な往復まで中断として扱い、応答を書かないまま固まる。
+ *
  * @param {import('http').IncomingMessage} req
- * @param {object} res
+ * @param {import('http').ServerResponse} res
  * @param {(signal: AbortSignal) => Promise<unknown>} run
  */
 export async function withClientAbort(req, res, run) {
   const controller = new AbortController();
   let settled = false;
-  // 応答を返し切ったあとにも'close'は来る。そこで倒しても害は無いが、
-  // 中断として記録されるので、終わったかどうかを見てから倒す。
-  const onClose = () => { if (!settled) controller.abort(); };
-  req.on?.('close', onClose);
+  // 応答を書き終えたあとにも'close'は来る。writableEndedで見分ける。
+  const onClose = () => { if (!settled && !res.writableEnded) controller.abort(); };
+  res.on?.('close', onClose);
 
   try {
     return await run(controller.signal);
   } finally {
     settled = true;
-    req.off?.('close', onClose);
+    res.off?.('close', onClose);
   }
 }
 
@@ -82,8 +85,15 @@ export async function respondToJev(req, res) {
   try {
     return await withClientAbort(req, res, (signal) => handleJev(parseBody(req), res, signal));
   } catch (err) {
-    // 呼び出し元が切れているので、書き込む先はもう無い。
-    if (err?.status === 499) return undefined;
+    // 呼び出し元が切れている。切れていれば書いても届かないが、
+    // 書ける状態なら必ず何かを返す。返さないと、生きている接続を
+    // 永久に待たせることになる。
+    if (err?.status === 499) {
+      if (!res.writableEnded) {
+        try { res.status(499).end(); } catch { /* すでに閉じている */ }
+      }
+      return undefined;
+    }
     console.error('Jev proxy error:', err.message || err);
     const status = err.status || 500;
     const message = status >= 500 ? 'Internal server error' : (typeof err.message === 'string' ? err.message : 'Internal server error');
