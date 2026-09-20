@@ -20,14 +20,46 @@ const DEFAULT_CONCURRENCY = 6;
 const RETRY_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const MAX_RETRIES = 2;
 
+// 記録した応答で回すときだけ、手元のhttpを許す。
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+
+/**
+ * 宛先を決める。
+ * ここにはBearerのAPIキーを載せて投げるので、平文になる設定を通さない。
+ * 手元のループバックだけは例外にする。tools/jev-stub.mjsがそこに立つ。
+ * @returns {string} 末尾のスラッシュを落としたURL
+ */
+function resolveBaseURL() {
+  const raw = process.env.TYPESAFE_BASE_URL;
+  if (!raw) return DEFAULT_BASE_URL;
+
+  let url;
+  try { url = new URL(raw); } catch {
+    throw { status: 500, message: `TYPESAFE_BASE_URL is not a valid URL: ${raw}` };
+  }
+  const ok = url.protocol === 'https:' || (url.protocol === 'http:' && LOOPBACK.has(url.hostname));
+  if (!ok) {
+    throw { status: 500, message: 'TYPESAFE_BASE_URL must use https (http is allowed only for localhost)' };
+  }
+  return raw.replace(/\/+$/, '');
+}
+
+/**
+ * 鍵・宛先・既定モデルをまとめて返す。
+ * @returns {{apiKey: string|null, baseURL: string, model: string}}
+ */
 export function jevConfig() {
   return {
     apiKey: process.env.TYPESAFE_API_KEY || null,
-    baseURL: (process.env.TYPESAFE_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, ''),
+    baseURL: resolveBaseURL(),
     model: process.env.TYPESAFE_DEFAULT_MODEL || DEFAULT_MODEL,
   };
 }
 
+/**
+ * サーバーにJevの鍵が入っているか。画面の出し分けに使う。
+ * @returns {boolean}
+ */
 export function hasJevKey() {
   return !!process.env.TYPESAFE_API_KEY;
 }
@@ -63,7 +95,21 @@ export function validateQuestions(questions) {
   }
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const aborted = () => ({ status: 499, message: 'Jev request aborted by caller' });
+
+/**
+ * 中断できる待ち。
+ * 素のsetTimeoutだと、待っているあいだに中断されても待ち切ってから
+ * 次のfetchを始めてしまう。
+ * @param {number} ms
+ * @param {AbortSignal} [signal]
+ */
+const sleep = (ms, signal) => new Promise((resolve, reject) => {
+  if (signal?.aborted) return reject(aborted());
+  const timer = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve(); }, ms);
+  function onAbort() { clearTimeout(timer); reject(aborted()); }
+  signal?.addEventListener('abort', onAbort, { once: true });
+});
 
 /** Retry-Afterは秒とミリ秒の両方が返りうる。読めない値は無視して自前の待ちに任せる。 */
 function retryAfterMs(headers) {
@@ -99,6 +145,10 @@ export async function systemOne(request, options = {}) {
   let lastError = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+    // addEventListenerは中断済みのsignalに対して発火しない。先に見ておかないと、
+    // すでに中断された呼び出しでも1回目のfetchが出てしまう。
+    if (options.signal?.aborted) throw aborted();
+
     // 呼び出し側の中断と自前のタイムアウトで同じcontrollerを倒す。
     // どちらが倒したかは timedOut で見分ける。中断を「タイムアウト」と report すると、
     // ベンチの遅延分布に打鍵由来のキャンセルが混ざる。
@@ -126,7 +176,7 @@ export async function systemOne(request, options = {}) {
         if (RETRY_STATUSES.has(res.status) && attempt < MAX_RETRIES) {
           lastError = err;
           const wait = retryAfterMs(res.headers) ?? 300 * 2 ** attempt;
-          await sleep(Math.min(wait, 5000));
+          await sleep(Math.min(wait, 5000), options.signal);
           continue;
         }
         throw err;
@@ -142,12 +192,12 @@ export async function systemOne(request, options = {}) {
       };
     } catch (err) {
       if (err?.status) throw err;
-      if (options.signal?.aborted) throw { status: 499, message: 'Jev request aborted by caller' };
+      if (options.signal?.aborted) throw aborted();
 
       const message = timedOut ? `Jev request timed out after ${timeoutMs}ms` : `Jev connection failed: ${err?.message || err}`;
       lastError = { status: timedOut ? 504 : 502, message };
       if (attempt < MAX_RETRIES) {
-        await sleep(300 * 2 ** attempt);
+        await sleep(300 * 2 ** attempt, options.signal);
         continue;
       }
       throw lastError;
@@ -178,8 +228,12 @@ export async function systemOneBatch(items, options = {}) {
   const results = new Array(items.length);
   let cursor = 0;
 
+  // 中断は項目の失敗と分けて持つ。同じ扱いにすると、打鍵で中断したあとも
+  // workerが残りの文を投げ続け、部分結果を200で返してしまう。
+  let cancelled = null;
+
   const worker = async () => {
-    while (cursor < items.length) {
+    while (cursor < items.length && !cancelled) {
       const i = cursor;
       cursor += 1;
       const item = items[i];
@@ -188,12 +242,16 @@ export async function systemOneBatch(items, options = {}) {
         const r = await systemOne(item, options);
         results[i] = { id: item.id, ok: true, answers: r.answers, usage: r.usage, latencyMs: r.latencyMs, model: r.model };
       } catch (err) {
+        if (err?.status === 499) { cancelled = err; return; }
         results[i] = { id: item.id, ok: false, latencyMs: Date.now() - startedAt, error: err?.message || 'Jev request failed' };
       }
     }
   };
 
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  // allSettledで待つ。allだと最初の1本で抜けて、残りのworkerの例外が
+  // 拾われないまま浮く。
+  await Promise.allSettled(Array.from({ length: Math.min(limit, items.length) }, worker));
+  if (cancelled) throw cancelled;
   return results;
 }
 

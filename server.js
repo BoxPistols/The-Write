@@ -8,7 +8,7 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { analyzeRequest, getAvailableProviders, testConnection, resolveKey } from './api/_shared.js';
-import { handleJev } from './api/jev.js';
+import { respondToJev } from './api/jev.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -76,18 +76,7 @@ app.post('/api/analyze', async (req, res) => {
 });
 
 // ─── Jev (TypeSafe AI) Endpoint ────────────────────
-app.post('/api/jev', async (req, res) => {
-  try {
-    await handleJev(req.body, res);
-  } catch (err) {
-    console.error('Jev proxy error:', err.message || err);
-    const status = err.status || 500;
-    const message = status >= 500
-      ? 'Internal server error'
-      : (typeof err.message === 'string' ? err.message : 'Internal server error');
-    res.status(status).json({ error: message });
-  }
-});
+app.post('/api/jev', (req, res) => respondToJev(req, res));
 
 // ─── Connection Test Endpoint ──────────────────────
 app.post('/api/test-connection', async (req, res) => {
