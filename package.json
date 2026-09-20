@@ -10,7 +10,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server.js",
-    "sync:cliche": "node scripts/sync-dead-cliche.mjs"
+    "sync:cliche": "node scripts/sync-dead-cliche.mjs",
+    "test": "node --test \"test/**/*.test.js\""
   },
   "dependencies": {
     "cors": "^2.8.5",

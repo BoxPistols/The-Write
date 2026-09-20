@@ -1,0 +1,216 @@
+// Jev(TypeSafe AI)への問い合わせ。
+//
+// 公式SDK(@typesafe-ai/sdk)は入れず、素のfetchで叩く。このAPIはPOST /v1/systemoneの
+// 1本しかなく、_shared.jsが他のプロバイダーを同じ形で扱っている。ここだけSDKに寄せると
+// 読み口が割れるわりに、省けるのはリトライとタイムアウトの数十行だけになる。
+// 契約はSDKの型定義に合わせてあり、質問の形はsrc/config/jevQuestions.jsと対で追える。
+
+const DEFAULT_BASE_URL = 'https://api.typesafe.ai';
+const DEFAULT_MODEL = 'jev-latest';
+
+// Jevは文章を書かないぶん速い。遅れた判定は打鍵で上書きされて捨てられるので、
+// 待ち続けるより落として次の入力でやり直すほうが画面の更新は速く見える。
+// SDKの既定(10s)より短く取っているのはそのため。
+const DEFAULT_TIMEOUT_MS = 6000;
+
+// 1リクエストにまとめる並列数。文ごとに1リクエスト投げるので、
+// ブラウザの6本制限ではなくサーバー側で束ねる。
+const DEFAULT_CONCURRENCY = 6;
+
+const RETRY_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const MAX_RETRIES = 2;
+
+export function jevConfig() {
+  return {
+    apiKey: process.env.TYPESAFE_API_KEY || null,
+    baseURL: (process.env.TYPESAFE_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, ''),
+    model: process.env.TYPESAFE_DEFAULT_MODEL || DEFAULT_MODEL,
+  };
+}
+
+export function hasJevKey() {
+  return !!process.env.TYPESAFE_API_KEY;
+}
+
+/**
+ * 質問の形を投げる前に確かめる。
+ * サーバーは400で弾いてくれるが、文の数だけ往復してから気づくと遅いうえに、
+ * どの文で壊れたのかが分からなくなる。
+ */
+export function validateQuestions(questions) {
+  if (!questions || typeof questions !== 'object' || Array.isArray(questions)) {
+    throw { status: 400, message: 'questions must be an object' };
+  }
+  const names = Object.keys(questions);
+  if (names.length === 0) throw { status: 400, message: 'questions must not be empty' };
+
+  for (const name of names) {
+    const q = questions[name];
+    if (!q || typeof q !== 'object') throw { status: 400, message: `question "${name}" must be an object` };
+    if (q.type === 'noul') continue;
+    if (q.type === 'choice') {
+      const labels = Object.keys(q.criteria || {});
+      if (labels.length < 2) throw { status: 400, message: `choice "${name}" needs at least 2 labels` };
+      continue;
+    }
+    if (q.type === 'score') {
+      if (!Array.isArray(q.criteria) || q.criteria.length < 2) {
+        throw { status: 400, message: `score "${name}" needs a rubric of at least 2 entries` };
+      }
+      continue;
+    }
+    throw { status: 400, message: `question "${name}" has unknown type: ${q.type}` };
+  }
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Retry-Afterは秒とミリ秒の両方が返りうる。読めない値は無視して自前の待ちに任せる。 */
+function retryAfterMs(headers) {
+  const ms = Number(headers.get('retry-after-ms'));
+  if (Number.isFinite(ms) && ms >= 0) return ms;
+  const s = Number(headers.get('retry-after'));
+  if (Number.isFinite(s) && s >= 0) return s * 1000;
+  return null;
+}
+
+/**
+ * 1回ぶんのsystemOne。
+ * @param {{state: any, questions: object, model?: string}} request
+ * @param {{timeoutMs?: number, signal?: AbortSignal, apiKey?: string}} [options]
+ * @returns {Promise<{model: string, answers: object, usage: object, latencyMs: number, requestId: string|undefined}>}
+ */
+export async function systemOne(request, options = {}) {
+  const cfg = jevConfig();
+  // 利用者が画面から入れた鍵を優先する。他のプロバイダーと同じ扱いに揃える。
+  const apiKey = options.apiKey || cfg.apiKey;
+  const { baseURL, model } = cfg;
+  if (!apiKey) throw { status: 401, message: 'TYPESAFE_API_KEY is not set' };
+
+  validateQuestions(request?.questions);
+
+  const timeoutMs = options.timeoutMs || Number(process.env.TYPESAFE_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS;
+  const body = JSON.stringify({
+    model: request.model || model,
+    state: request.state ?? null,
+    questions: request.questions,
+  });
+
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+    // 呼び出し側の中断と自前のタイムアウトで同じcontrollerを倒す。
+    // どちらが倒したかは timedOut で見分ける。中断を「タイムアウト」と report すると、
+    // ベンチの遅延分布に打鍵由来のキャンセルが混ざる。
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+    const onAbort = () => controller.abort();
+    options.signal?.addEventListener('abort', onAbort, { once: true });
+
+    const startedAt = Date.now();
+    try {
+      const res = await fetch(`${baseURL}/v1/systemone`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body,
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const errBody = await res.text();
+        const err = { status: res.status, message: `Jev error ${res.status}: ${errBody}` };
+        if (RETRY_STATUSES.has(res.status) && attempt < MAX_RETRIES) {
+          lastError = err;
+          const wait = retryAfterMs(res.headers) ?? 300 * 2 ** attempt;
+          await sleep(Math.min(wait, 5000));
+          continue;
+        }
+        throw err;
+      }
+
+      const data = await res.json();
+      return {
+        model: data.model,
+        answers: data.answers || {},
+        usage: data.usage || { input_tokens: 0, output_tokens: 0 },
+        latencyMs: Date.now() - startedAt,
+        requestId: res.headers.get('x-typesafe-request-id') || undefined,
+      };
+    } catch (err) {
+      if (err?.status) throw err;
+      if (options.signal?.aborted) throw { status: 499, message: 'Jev request aborted by caller' };
+
+      const message = timedOut ? `Jev request timed out after ${timeoutMs}ms` : `Jev connection failed: ${err?.message || err}`;
+      lastError = { status: timedOut ? 504 : 502, message };
+      if (attempt < MAX_RETRIES) {
+        await sleep(300 * 2 ** attempt);
+        continue;
+      }
+      throw lastError;
+    } finally {
+      clearTimeout(timer);
+      options.signal?.removeEventListener('abort', onAbort);
+    }
+  }
+
+  throw lastError || { status: 500, message: 'Jev request failed' };
+}
+
+/**
+ * 複数の判定をまとめて出す。
+ * 1件の失敗で全部を落とさない。入力中の画面では、9文のうち1文が落ちても
+ * 残り8文の下線は出したほうが使える。呼び出し側がidで突き合わせる。
+ *
+ * @param {Array<{id: string, state: any, questions: object, model?: string}>} items
+ * @param {{concurrency?: number, timeoutMs?: number, signal?: AbortSignal, apiKey?: string}} [options]
+ * @returns {Promise<Array<{id: string, ok: boolean, answers?: object, usage?: object, latencyMs: number, error?: string}>>}
+ */
+export async function systemOneBatch(items, options = {}) {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw { status: 400, message: 'items must be a non-empty array' };
+  }
+
+  const limit = Math.max(1, Math.min(options.concurrency || DEFAULT_CONCURRENCY, 12));
+  const results = new Array(items.length);
+  let cursor = 0;
+
+  const worker = async () => {
+    while (cursor < items.length) {
+      const i = cursor;
+      cursor += 1;
+      const item = items[i];
+      const startedAt = Date.now();
+      try {
+        const r = await systemOne(item, options);
+        results[i] = { id: item.id, ok: true, answers: r.answers, usage: r.usage, latencyMs: r.latencyMs, model: r.model };
+      } catch (err) {
+        results[i] = { id: item.id, ok: false, latencyMs: Date.now() - startedAt, error: err?.message || 'Jev request failed' };
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+/** 疎通確認。モデル一覧は認証だけ確かめられればよいので判定は投げない。 */
+export async function testJevConnection(clientKey) {
+  const cfg = jevConfig();
+  const apiKey = clientKey || cfg.apiKey;
+  const { baseURL } = cfg;
+  if (!apiKey) throw { status: 400, message: 'TYPESAFE_API_KEY is not set' };
+
+  const res = await fetch(`${baseURL}/v1/models`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw { status: res.status, message: `Jev: ${err}` };
+  }
+  return true;
+}
