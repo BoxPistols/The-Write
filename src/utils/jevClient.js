@@ -1,7 +1,7 @@
 // 画面からJevを呼ぶ口。鍵はサーバー側に置くので、ここは /api/jev を叩くだけにする。
 // 閾値はsrc/config/jevQuestions.jsのverdictOfに任せ、ここでは判定しない。
 
-import { SENTENCE_QUESTIONS, REWRITE_QUESTIONS, verdictOf, gateOf } from '../config/jevQuestions';
+import { SENTENCE_QUESTIONS, REWRITE_QUESTIONS, verdictOf, gateOf } from '../config/jevQuestions.js';
 
 /**
  * 1文ぶんのstateを組む。
