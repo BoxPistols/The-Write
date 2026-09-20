@@ -105,3 +105,19 @@ Authorization: Bearer $TYPESAFE_API_KEY
 node tools/jev-stub.mjs &
 TYPESAFE_API_KEY=stub TYPESAFE_BASE_URL=http://localhost:8787 npm run dev
 ```
+
+## 効いているかを確かめる
+
+言い分が本当かは測らないと分からない。`bench/` に実行系がある。
+
+```bash
+TYPESAFE_API_KEY=... OPENAI_API_KEY=... npm run bench && npm run bench:report
+```
+
+測るのは「最初の反応が出るまで」「一通り見終わるまで」「1文直したあとの更新」と、
+トークン・費用・precision/recall/F1。手を入れるべき文のラベルは手書きのコーパス
+（`bench/corpus.ja.json`）に置いてあり、生成モデルにも辞書にも作らせていない。
+作らせると、測る側と測られる側が同じ思い込みを共有してしまう。
+
+閾値を動かして測り直せる。`FLAG_THRESHOLD.awkward` を下げれば recall は上がり、
+precision は下がる。どちらを取るかは、この表を見てから決める。
