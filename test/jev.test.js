@@ -230,21 +230,39 @@ test('中断はbatch全体を止め、部分結果を返さない', async () => 
   assert.ok(calls < items.length, `中断後も投げ続けている: ${calls}件`);
 });
 
-test('呼び出し元が切れたら、下流の往復も止める', async () => {
+test('応答側が閉じたら、下流の往復も止める', async () => {
+  // 見張るのはresのほう。reqの'close'は本文を読み終えた時点でも上がるので、
+  // そちらで判断すると正常な往復まで中断として扱ってしまう。
   const { withClientAbort } = await import('../api/jev.js');
   const listeners = new Map();
-  const req = {
+  const res = {
+    writableEnded: false,
     on: (ev, fn) => listeners.set(ev, fn),
     off: (ev) => listeners.delete(ev),
   };
   let seenAborted = false;
-  const p = withClientAbort(req, {}, async (signal) => {
-    listeners.get('close')();          // 接続が切れた
+  await withClientAbort({}, res, async (signal) => {
+    listeners.get('close')();          // 応答を返し切る前に閉じた
     seenAborted = signal.aborted;
   });
-  await p;
   assert.equal(seenAborted, true);
   assert.equal(listeners.has('close'), false, '後始末でリスナーを外す');
+});
+
+test('応答を書き終えたあとのcloseは中断にしない', async () => {
+  const { withClientAbort } = await import('../api/jev.js');
+  const listeners = new Map();
+  const res = {
+    writableEnded: true,
+    on: (ev, fn) => listeners.set(ev, fn),
+    off: (ev) => listeners.delete(ev),
+  };
+  let seenAborted = null;
+  await withClientAbort({}, res, async (signal) => {
+    listeners.get('close')();
+    seenAborted = signal.aborted;
+  });
+  assert.equal(seenAborted, false);
 });
 
 // ─── 宛先の許可リスト ──────────────────────────────
