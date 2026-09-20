@@ -63,6 +63,20 @@ function stubUpstream({ delayMs = 50, onCall } = {}) {
   return calls;
 }
 
+/**
+ * 待っているものが来なければ、待ち続けずに落とす。
+ * 固定の待ち時間で代用すると、遅い実行環境で正しい実装でも落ちる。
+ * かといって無期限に待つと、壊れたときに試験そのものが終わらなくなる。
+ */
+const withTimeout = (promise, ms, label) => {
+  let timer;
+  const guard = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label}が来ない(${ms}ms)`)), ms);
+    timer.unref?.();
+  });
+  return Promise.race([promise, guard]).finally(() => clearTimeout(timer));
+};
+
 // テスト側からサーバーを叩くのは素のfetch。差し替えたfetchはサーバー内で使う。
 const post = (body, init = {}) => realFetch(`${base}/api/jev`, {
   method: 'POST',
@@ -110,20 +124,36 @@ test('形の壊れた項目は400で返す', async () => {
 
 test('呼び出し元が切れたら、上流への往復を打ち切る', async () => {
   // 切れた相手のために外部APIを叩き続けない。
+  //
+  // 時間で待たずに、起きたことで待つ。上流が呼ばれる前に中断すると、
+  // 正しい実装でも「中断が届かなかった」ことになってしまう。
   let upstreamAborted = false;
+  let markCalled;
+  let markAborted;
+  const called = new Promise((r) => { markCalled = r; });
+  const abortSeen = new Promise((r) => { markAborted = r; });
+
   const calls = stubUpstream({
     delayMs: 3000,
-    onCall: (init) => { init.signal?.addEventListener('abort', () => { upstreamAborted = true; }); },
+    onCall: (init) => {
+      init.signal?.addEventListener('abort', () => {
+        upstreamAborted = true;
+        markAborted();
+      }, { once: true });
+      // 並列ぶん何度も呼ばれるが、解決済みのPromiseを解決し直しても害は無い
+      markCalled();
+    },
   });
 
   const controller = new AbortController();
   const items = Array.from({ length: 8 }, (_, i) => ({ id: String(i), state: 'あ', questions: QUESTIONS }));
   const p = post({ items, concurrency: 2 }, { signal: controller.signal });
-  await new Promise((r) => setTimeout(r, 300));
+
+  await withTimeout(called, 5000, '上流への呼び出し');
   controller.abort();
   await assert.rejects(() => p);
 
-  await new Promise((r) => setTimeout(r, 300));
+  await withTimeout(abortSeen, 5000, '上流への中断');
   assert.equal(upstreamAborted, true, '上流のfetchが中断されていない');
   assert.ok(calls.length < items.length, `中断後も投げ続けている: ${calls.length}件`);
 });
