@@ -1,6 +1,6 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { systemOne, systemOneBatch, hasJevKey } from '../api/_jev.js';
+import { systemOne, systemOneBatch, hasJevKey, retryAfterMs } from '../api/_jev.js';
 import { handleJev } from '../api/jev.js';
 
 const realFetch = globalThis.fetch;
@@ -17,6 +17,7 @@ afterEach(() => {
   globalThis.fetch = realFetch;
   delete process.env.TYPESAFE_API_KEY;
   delete process.env.TYPESAFE_BASE_URL;
+  delete process.env.TYPESAFE_ALLOWED_HOSTS;
 });
 
 test('鍵が無ければ投げる前に401にする', async () => {
@@ -244,4 +245,85 @@ test('呼び出し元が切れたら、下流の往復も止める', async () =>
   await p;
   assert.equal(seenAborted, true);
   assert.equal(listeners.has('close'), false, '後始末でリスナーを外す');
+});
+
+// ─── 宛先の許可リスト ──────────────────────────────
+// httpsは経路を守るが、相手が誰かは保証しない。環境変数を書ける人が
+// 手元のホストへ鍵を転送できないよう、宛先そのものを絞る。
+
+test('許可していないhttpsのホストへは投げない', async () => {
+  process.env.TYPESAFE_BASE_URL = 'https://attacker.example';
+  let called = false;
+  globalThis.fetch = async () => { called = true; return jsonResponse({}); };
+  await assert.rejects(
+    () => systemOne({ state: 'あ', questions: QUESTIONS }),
+    (e) => e.status === 500 && /not allowed/.test(e.message)
+  );
+  assert.equal(called, false);
+});
+
+test('既定の宛先は許可する', async () => {
+  process.env.TYPESAFE_BASE_URL = 'https://api.typesafe.ai';
+  globalThis.fetch = async () => jsonResponse({ model: 'jev-1', answers: {}, usage: {} });
+  await systemOne({ state: 'あ', questions: QUESTIONS });
+});
+
+test('TYPESAFE_ALLOWED_HOSTSで宛先を足せる', async () => {
+  // ゲートウェイ経由の構成は実在する。既定に入れないのは、鍵の転送先を
+  // 増やすのは意図して行うべき設定だから。
+  process.env.TYPESAFE_BASE_URL = 'https://gateway.example/jev';
+  process.env.TYPESAFE_ALLOWED_HOSTS = 'gateway.example, other.example';
+  let seen = '';
+  globalThis.fetch = async (url) => { seen = url; return jsonResponse({ model: 'jev-1', answers: {}, usage: {} }); };
+  await systemOne({ state: 'あ', questions: QUESTIONS });
+  assert.equal(seen, 'https://gateway.example/jev/v1/systemone');
+  delete process.env.TYPESAFE_ALLOWED_HOSTS;
+});
+
+// ─── Retry-After ───────────────────────────────────
+
+test('Retry-Afterが無ければnullを返し、指数バックオフに任せる', () => {
+  // headers.get()はヘッダが無いとnullを返し、Number(null)は0になる。
+  // そのまま通すと「0ミリ秒待て」と読んで、429に間を置かず投げ直す。
+  assert.equal(retryAfterMs(new Headers()), null);
+  assert.equal(retryAfterMs(new Headers({ 'retry-after': 'soon' })), null);
+  assert.equal(retryAfterMs(new Headers({ 'retry-after': '-1' })), null);
+});
+
+test('Retry-Afterはミリ秒を秒より先に読む', () => {
+  assert.equal(retryAfterMs(new Headers({ 'retry-after-ms': '250', 'retry-after': '5' })), 250);
+  assert.equal(retryAfterMs(new Headers({ 'retry-after': '2' })), 2000);
+  assert.equal(retryAfterMs(new Headers({ 'retry-after-ms': '0' })), 0);
+});
+
+// ─── まとめ投げの入力検証 ──────────────────────────
+
+test('数でない並列数は、workerを立てる前に弾く', async () => {
+  // 文字列を渡されるとlimitがNaNになり、workerが1つも立たずに
+  // 中身の無い結果を200で返すことになる。
+  let called = false;
+  globalThis.fetch = async () => { called = true; return jsonResponse({}); };
+  const items = [{ id: 'a', state: 'あ', questions: QUESTIONS }];
+  await assert.rejects(
+    () => systemOneBatch(items, { concurrency: 'invalid' }),
+    (e) => e.status === 400 && /concurrency/.test(e.message)
+  );
+  await assert.rejects(() => systemOneBatch(items, { concurrency: 0 }), (e) => e.status === 400);
+  await assert.rejects(() => systemOneBatch(items, { concurrency: 99 }), (e) => e.status === 400);
+  assert.equal(called, false);
+});
+
+test('形の壊れた項目は、workerを立てる前に弾く', async () => {
+  let called = false;
+  globalThis.fetch = async () => { called = true; return jsonResponse({}); };
+  const bad = [
+    [[null], /items\[0\] must be an object/],
+    [[{ state: 'あ', questions: QUESTIONS }], /items\[0\]\.id/],
+    [[{ id: '', state: 'あ', questions: QUESTIONS }], /items\[0\]\.id/],
+    [[{ id: 'a', state: 'あ' }], /items\[0\]: questions/],
+  ];
+  for (const [items, pattern] of bad) {
+    await assert.rejects(() => systemOneBatch(items), (e) => e.status === 400 && pattern.test(e.message));
+  }
+  assert.equal(called, false, 'どの項目で壊れたかを、往復する前に返す');
 });

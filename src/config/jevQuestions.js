@@ -10,6 +10,13 @@
 // criteriaは選択肢そのものの説明で、質問文ではない。ここを曖昧にすると
 // 確率が割れるだけで、後段の閾値をいくら動かしても精度は上がらない。
 
+/**
+ * 1リクエストにまとめて投げられる判定の数。
+ * サーバー(api/jev.js)とクライアント(src/utils/jevClient.js)が同じ値を見る。
+ * 別々に持つと、片方を動かしたときにもう片方が400を返すようになる。
+ */
+export const MAX_ITEMS_PER_REQUEST = 64;
+
 /** はい／いいえの質問を作る。 */
 export const noul = (instructions, criteria) => ({
   type: 'noul',

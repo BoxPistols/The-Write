@@ -1,7 +1,9 @@
 // 画面からJevを呼ぶ口。鍵はサーバー側に置くので、ここは /api/jev を叩くだけにする。
 // 閾値はsrc/config/jevQuestions.jsのverdictOfに任せ、ここでは判定しない。
 
-import { SENTENCE_QUESTIONS, REWRITE_QUESTIONS, verdictOf, gateOf } from '../config/jevQuestions';
+import {
+  SENTENCE_QUESTIONS, REWRITE_QUESTIONS, MAX_ITEMS_PER_REQUEST, verdictOf, gateOf,
+} from '../config/jevQuestions.js';
 
 /**
  * 1文ぶんのstateを組む。
@@ -16,6 +18,24 @@ export function sentenceState(sentence, { before = '', after = '', purpose = '' 
   return state;
 }
 
+/**
+ * 配列をn件ずつに割る。
+ * @param {Array} xs
+ * @param {number} n
+ * @returns {Array<Array>}
+ */
+const chunk = (xs, n) => {
+  const out = [];
+  for (let i = 0; i < xs.length; i += n) out.push(xs.slice(i, i + n));
+  return out;
+};
+
+/**
+ * /api/jev を1回叩く。エラー本文があれば、その文言をそのまま投げ直す。
+ * @param {object} payload
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<object>}
+ */
 async function postJev(payload, signal) {
   const res = await fetch('/api/jev', {
     method: 'POST',
@@ -29,6 +49,30 @@ async function postJev(payload, signal) {
     throw new Error(detail || `Jev error: ${res.status}`);
   }
   return res.json();
+}
+
+/**
+ * まとめ投げを上限ごとに分けて送り、入力の順に戻す。
+ *
+ * 分けずに送ると、上限を超えた本文では1件も判定できない。長い文書ほど
+ * 判定が要るので、そこで黙って全部落ちるのがいちばん困る。
+ *
+ * 順番に送るのは、中断と失敗を後続へそのまま伝えるため。並べて送ると、
+ * 1つが倒れても残りが走り切ってしまう。
+ *
+ * @param {Array} items
+ * @param {{clientKeys?: object, concurrency?: number, signal?: AbortSignal}} [options]
+ * @returns {Promise<{results: Array, wallMs: number}>}
+ */
+async function postItems(items, { clientKeys, concurrency, signal } = {}) {
+  let wallMs = 0;
+  const results = [];
+  for (const batch of chunk(items, MAX_ITEMS_PER_REQUEST)) {
+    const data = await postJev({ items: batch, clientKeys, concurrency }, signal);
+    wallMs += data.wallMs || 0;
+    results.push(...data.results);
+  }
+  return { results, wallMs };
 }
 
 /**
@@ -49,11 +93,7 @@ export async function judgeSentences(sentences, options = {}) {
     questions: SENTENCE_QUESTIONS,
   }));
 
-  const data = await postJev({
-    items,
-    clientKeys: options.clientKeys,
-    concurrency: options.concurrency,
-  }, options.signal);
+  const data = await postItems(items, options);
 
   return {
     wallMs: data.wallMs,
@@ -80,11 +120,7 @@ export async function judgeRewrites(pairs, options = {}) {
     questions: REWRITE_QUESTIONS,
   }));
 
-  const data = await postJev({
-    items,
-    clientKeys: options.clientKeys,
-    concurrency: options.concurrency,
-  }, options.signal);
+  const data = await postItems(items, options);
 
   return {
     wallMs: data.wallMs,
