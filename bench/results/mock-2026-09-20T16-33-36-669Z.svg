@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 194" width="760" height="194" role="img" aria-label="1文直したあと、スコアが更新されるまで">
+<style>
+  svg { --s1: #2a78d6; --s2: #eb6834; --ink: #0b0b0b; --ink2: #52514e; --ink3: #8a8a84; --line: #e6e6e1; --surface: #fcfcfb; }
+  @media (prefers-color-scheme: dark) {
+    svg { --s1: #3987e5; --s2: #d95926; --ink: #ffffff; --ink2: #c3c2b7; --ink3: #8a8a84; --line: #2e2e2c; --surface: #1a1a19; }
+  }
+  .bg { fill: var(--surface); }
+  .title { fill: var(--ink); font: 600 15px system-ui, sans-serif; }
+  .subtitle { fill: var(--ink2); font: 400 12px system-ui, sans-serif; }
+  .rowlabel { fill: var(--ink2); font: 400 12px system-ui, sans-serif; }
+  .value { fill: var(--ink2); font: 500 11px ui-monospace, monospace; }
+  .tick { fill: var(--ink3); font: 400 10px ui-monospace, monospace; }
+  .legend { fill: var(--ink2); font: 400 12px system-ui, sans-serif; }
+  .grid { stroke: var(--line); stroke-width: 1; }
+</style>
+<rect class="bg" x="0" y="0" width="760" height="194" />
+<text class="title" x="24" y="30">1文直したあと、スコアが更新されるまで</text>
+<text class="subtitle" x="24" y="48">mock / 中央値・ミリ秒 / 短いほど速い</text>
+<rect x="144" y="60" width="10" height="10" rx="2" fill="var(--s1)" /><text x="160" y="69" class="legend">Jev（変わった1文だけ）</text><rect x="354" y="60" width="10" height="10" rx="2" fill="var(--s2)" /><text x="370" y="69" class="legend">生成モデル（全文をやり直す）</text>
+<line x1="144" y1="82" x2="144" y2="164" class="grid" /><text x="144" y="180" class="tick" text-anchor="middle">0</text><line x1="278.5" y1="82" x2="278.5" y2="164" class="grid" /><text x="278.5" y="180" class="tick" text-anchor="middle">500</text><line x1="413" y1="82" x2="413" y2="164" class="grid" /><text x="413" y="180" class="tick" text-anchor="middle">1,000</text><line x1="547.5" y1="82" x2="547.5" y2="164" class="grid" /><text x="547.5" y="180" class="tick" text-anchor="middle">1,500</text><line x1="682" y1="82" x2="682" y2="164" class="grid" /><text x="682" y="180" class="tick" text-anchor="middle">2,000</text><text x="132" y="111" class="rowlabel" text-anchor="end">doc8 (226文字)</text><path d="M144,92 H177.79342400001153 a4,4 0 0 1 4,4 V106 a4,4 0 0 1 -4,4 H144 Z" fill="var(--s1)" /><text x="189.79342400001153" y="106" class="value">140</text><path d="M144,112 H645.8423950000201 a4,4 0 0 1 4,4 V126 a4,4 0 0 1 -4,4 H144 Z" fill="var(--s2)" /><text x="657.8423950000201" y="126" class="value">1,880</text>
+</svg>

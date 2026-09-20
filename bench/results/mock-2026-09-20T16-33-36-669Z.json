@@ -1,0 +1,117 @@
+{
+  "mode": "mock",
+  "warning": "これは記録した応答で配線を確かめただけの出力で、測定値ではない。遅延は定数、判定はコーパスのラベルから作っている。",
+  "ranAt": "2026-09-20T16:33:36.669Z",
+  "model": "gpt-5.6-luna",
+  "repeat": 1,
+  "corpusVersion": 1,
+  "corpusStats": {
+    "total": 61,
+    "ng": 31
+  },
+  "prices": {
+    "llm": {
+      "input": 0.2,
+      "output": 1.2
+    },
+    "jev": null
+  },
+  "priceNote": "Jevの単価が渡されていないため、Jev側の費用は出していない（JEV_PRICE_INPUT / JEV_PRICE_OUTPUT）。",
+  "byDoc": {
+    "doc8": {
+      "chars": 226,
+      "sentences": 8,
+      "ngSentences": 4,
+      "llmOnly": {
+        "ttffMs": {
+          "p50": 1851.7639999999665,
+          "p95": 1851.7639999999665
+        },
+        "wallMs": {
+          "p50": 1851.7639999999665,
+          "p95": 1851.7639999999665
+        },
+        "judgeMs": {
+          "p50": null
+        },
+        "llmMs": {
+          "p50": 1851.7639999999665
+        },
+        "llmTokens": {
+          "input": 562,
+          "output": 120
+        },
+        "jevTokens": null,
+        "llmCostUsd": 0.0002564,
+        "jevCostUsd": null,
+        "unmatched": 0,
+        "suggestionCount": 2,
+        "parseFailures": 0,
+        "sentSentences": null,
+        "failedJudgements": null,
+        "accuracy": {
+          "tp": 2,
+          "fp": 0,
+          "fn": 2,
+          "tn": 4,
+          "precision": 1,
+          "recall": 0.5,
+          "f1": 0.6666666666666666,
+          "total": 8
+        }
+      },
+      "jevTriage": {
+        "ttffMs": {
+          "p50": 139.8159999998752,
+          "p95": 139.8159999998752
+        },
+        "wallMs": {
+          "p50": 1575.2259999997914,
+          "p95": 1575.2259999997914
+        },
+        "judgeMs": {
+          "p50": 139.9769999999553
+        },
+        "llmMs": {
+          "p50": 1434.966000000015
+        },
+        "llmTokens": {
+          "input": 500,
+          "output": 120
+        },
+        "jevTokens": {
+          "input": 114,
+          "output": 24
+        },
+        "llmCostUsd": 0.00024400000000000002,
+        "jevCostUsd": null,
+        "unmatched": 0,
+        "suggestionCount": 2,
+        "parseFailures": 0,
+        "sentSentences": 4,
+        "failedJudgements": 0,
+        "accuracy": {
+          "tp": 4,
+          "fp": 0,
+          "fn": 0,
+          "tn": 4,
+          "precision": 1,
+          "recall": 1,
+          "f1": 1,
+          "total": 8
+        }
+      },
+      "update": {
+        "jevMs": {
+          "p50": 140.49600000004284,
+          "p95": 140.49600000004284
+        },
+        "llmMs": {
+          "p50": 1880.4550000000745,
+          "p95": 1880.4550000000745
+        },
+        "llmCostUsd": 0.00032920000000000003
+      }
+    }
+  }
+}
