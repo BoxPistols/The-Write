@@ -16,17 +16,38 @@ const DEFAULT_TIMEOUT_MS = 6000;
 // 1リクエストにまとめる並列数。文ごとに1リクエスト投げるので、
 // ブラウザの6本制限ではなくサーバー側で束ねる。
 const DEFAULT_CONCURRENCY = 6;
+const MAX_CONCURRENCY = 12;
 
 const RETRY_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const MAX_RETRIES = 2;
 
 // 記録した応答で回すときだけ、手元のhttpを許す。
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+const DEFAULT_HOST = 'api.typesafe.ai';
+
+/**
+ * APIキーを送ってよい宛先。
+ * httpsは経路を守るが、相手が誰かは保証しない。環境変数を書ける人が
+ * 手元のホストへ鍵を転送できてしまうので、宛先そのものを絞る。
+ *
+ * ゲートウェイ経由で使う構成は実在するため、TYPESAFE_ALLOWED_HOSTSで
+ * 明示的に足せるようにする。既定に入れないのは、鍵の転送先を増やすのは
+ * 意図して行うべき設定だから。
+ * @returns {Set<string>}
+ */
+function allowedHosts() {
+  const extra = (process.env.TYPESAFE_ALLOWED_HOSTS || '')
+    .split(',')
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+  return new Set([DEFAULT_HOST, ...extra]);
+}
 
 /**
  * 宛先を決める。
- * ここにはBearerのAPIキーを載せて投げるので、平文になる設定を通さない。
- * 手元のループバックだけは例外にする。tools/jev-stub.mjsがそこに立つ。
+ * ここにはBearerのAPIキーを載せて投げるので、平文になる設定も、
+ * 許可していないホストも通さない。手元のループバックだけは例外にする。
+ * tools/jev-stub.mjsがそこに立つ。
  * @returns {string} 末尾のスラッシュを落としたURL
  */
 function resolveBaseURL() {
@@ -37,9 +58,24 @@ function resolveBaseURL() {
   try { url = new URL(raw); } catch {
     throw { status: 500, message: `TYPESAFE_BASE_URL is not a valid URL: ${raw}` };
   }
-  const ok = url.protocol === 'https:' || (url.protocol === 'http:' && LOOPBACK.has(url.hostname));
-  if (!ok) {
-    throw { status: 500, message: 'TYPESAFE_BASE_URL must use https (http is allowed only for localhost)' };
+
+  const host = url.hostname.toLowerCase();
+  const loopback = LOOPBACK.has(host);
+
+  if (url.protocol === 'http:') {
+    if (!loopback) {
+      throw { status: 500, message: 'TYPESAFE_BASE_URL must use https (http is allowed only for localhost)' };
+    }
+    return raw.replace(/\/+$/, '');
+  }
+  if (url.protocol !== 'https:') {
+    throw { status: 500, message: `TYPESAFE_BASE_URL must use https, got ${url.protocol}` };
+  }
+  if (!loopback && !allowedHosts().has(host)) {
+    throw {
+      status: 500,
+      message: `TYPESAFE_BASE_URL host is not allowed: ${host} (add it to TYPESAFE_ALLOWED_HOSTS to permit a gateway)`,
+    };
   }
   return raw.replace(/\/+$/, '');
 }
@@ -68,6 +104,8 @@ export function hasJevKey() {
  * 質問の形を投げる前に確かめる。
  * サーバーは400で弾いてくれるが、文の数だけ往復してから気づくと遅いうえに、
  * どの文で壊れたのかが分からなくなる。
+ * @param {object} questions 名前をキーにした質問の集まり
+ * @throws {{status: 400, message: string}} 形が契約に合わないとき
  */
 export function validateQuestions(questions) {
   if (!questions || typeof questions !== 'object' || Array.isArray(questions)) {
@@ -95,6 +133,11 @@ export function validateQuestions(questions) {
   }
 }
 
+/**
+ * 呼び出し側の中断を表すエラー。タイムアウト(504)と分けておかないと、
+ * 打鍵由来のキャンセルがベンチの遅延分布に混ざる。
+ * @returns {{status: 499, message: string}}
+ */
 const aborted = () => ({ status: 499, message: 'Jev request aborted by caller' });
 
 /**
@@ -111,13 +154,27 @@ const sleep = (ms, signal) => new Promise((resolve, reject) => {
   signal?.addEventListener('abort', onAbort, { once: true });
 });
 
-/** Retry-Afterは秒とミリ秒の両方が返りうる。読めない値は無視して自前の待ちに任せる。 */
-function retryAfterMs(headers) {
-  const ms = Number(headers.get('retry-after-ms'));
-  if (Number.isFinite(ms) && ms >= 0) return ms;
-  const s = Number(headers.get('retry-after'));
-  if (Number.isFinite(s) && s >= 0) return s * 1000;
-  return null;
+/**
+ * Retry-Afterは秒とミリ秒の両方が返りうる。読めない値と無い値はnullを返し、
+ * 呼び出し側の指数バックオフに任せる。
+ *
+ * headers.get()はヘッダが無いとnullを返し、Number(null)は0になる。
+ * そのまま通すと「0ミリ秒待て」と読んでしまい、429や5xxに間を置かず
+ * 投げ直すことになる。無い値は数として扱わない。
+ * @param {Headers} headers
+ * @returns {number|null}
+ */
+export function retryAfterMs(headers) {
+  const read = (name) => {
+    const raw = headers.get(name);
+    if (raw === null) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  };
+  const ms = read('retry-after-ms');
+  if (ms !== null) return ms;
+  const seconds = read('retry-after');
+  return seconds === null ? null : seconds * 1000;
 }
 
 /**
@@ -219,12 +276,44 @@ export async function systemOne(request, options = {}) {
  * @param {{concurrency?: number, timeoutMs?: number, signal?: AbortSignal, apiKey?: string}} [options]
  * @returns {Promise<Array<{id: string, ok: boolean, answers?: object, usage?: object, latencyMs: number, error?: string}>>}
  */
-export async function systemOneBatch(items, options = {}) {
+/**
+ * まとめ投げの入力を、workerを立てる前に確かめる。
+ * 立ててから気づくと、中身の無い結果や、記録する側の例外になる。
+ * @param {Array} items
+ * @param {number} [concurrency]
+ * @throws {{status: 400, message: string}}
+ */
+export function validateBatch(items, concurrency) {
   if (!Array.isArray(items) || items.length === 0) {
     throw { status: 400, message: 'items must be a non-empty array' };
   }
+  // 文字列を渡されるとlimitがNaNになり、workerが1つも立たずに
+  // 中身の無い結果を200で返すことになる。数として使う前に確かめる。
+  if (concurrency !== undefined && concurrency !== null) {
+    if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > MAX_CONCURRENCY) {
+      throw { status: 400, message: `concurrency must be an integer from 1 to ${MAX_CONCURRENCY}` };
+    }
+  }
+  items.forEach((item, i) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw { status: 400, message: `items[${i}] must be an object` };
+    }
+    // idが無いと、失敗を記録する側がitem.idの参照で落ちる。
+    if (typeof item.id !== 'string' || !item.id) {
+      throw { status: 400, message: `items[${i}].id must be a non-empty string` };
+    }
+    try {
+      validateQuestions(item.questions);
+    } catch (err) {
+      throw { status: 400, message: `items[${i}]: ${err?.message || 'invalid questions'}` };
+    }
+  });
+}
 
-  const limit = Math.max(1, Math.min(options.concurrency || DEFAULT_CONCURRENCY, 12));
+export async function systemOneBatch(items, options = {}) {
+  validateBatch(items, options.concurrency);
+
+  const limit = Math.max(1, Math.min(options.concurrency || DEFAULT_CONCURRENCY, MAX_CONCURRENCY));
   const results = new Array(items.length);
   let cursor = 0;
 
@@ -252,10 +341,22 @@ export async function systemOneBatch(items, options = {}) {
   // 拾われないまま浮く。
   await Promise.allSettled(Array.from({ length: Math.min(limit, items.length) }, worker));
   if (cancelled) throw cancelled;
+
+  // allSettledは例外を飲む。入力は検証済みなのでここに来ないはずだが、
+  // 抜けた穴をそのまま200で返すと、呼び出し側がundefinedを読んで落ちる。
+  const missing = results.findIndex((r) => r === undefined);
+  if (missing !== -1) {
+    throw { status: 500, message: `Jev batch left item ${missing} unanswered` };
+  }
   return results;
 }
 
-/** 疎通確認。モデル一覧は認証だけ確かめられればよいので判定は投げない。 */
+/**
+ * 疎通確認。モデル一覧は認証だけ確かめられればよいので判定は投げない。
+ * @param {string} [clientKey] 利用者が画面から入れた鍵。無ければ環境変数を使う
+ * @returns {Promise<true>}
+ * @throws {{status: number, message: string}} 認証に失敗したとき
+ */
 export async function testJevConnection(clientKey) {
   const cfg = jevConfig();
   const apiKey = clientKey || cfg.apiKey;

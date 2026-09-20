@@ -1,5 +1,6 @@
 import { systemOne, systemOneBatch } from './_jev.js';
 import { setCorsHeaders } from './_shared.js';
+import { MAX_ITEMS_PER_REQUEST } from '../src/config/jevQuestions.js';
 
 /**
  * 本文をJSONとして読む。実行環境によってBufferでも文字列でも来る。
@@ -18,8 +19,9 @@ const parseBody = (req) => {
 };
 
 // 1リクエストで受け付ける判定の数。入力中の本文はいくらでも長くなるので、
-// 上限が無いと1打鍵で数百件をJevに投げることになる。溢れた文は次の打鍵で拾う。
-const MAX_ITEMS = 64;
+// 上限が無いと1打鍵で数百件をJevに投げることになる。
+// クライアント側(src/utils/jevClient.js)がこの数で分割して投げてくる。
+const MAX_ITEMS = MAX_ITEMS_PER_REQUEST;
 
 /**
  * Jevへの判定を代理する。
