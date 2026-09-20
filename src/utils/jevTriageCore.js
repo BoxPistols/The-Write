@@ -4,7 +4,12 @@
 
 import { hashSentence } from './sentences.js';
 
-/** 1リクエストにまとめる上限。api/jev.js の MAX_ITEMS と合わせる。 */
+/**
+ * 画面へ返す単位。
+ * 転送の上限を守るのはjevClient側の仕事で、ここはそれより細かく刻んで
+ * 途中経過を出すためにある。大きくすると最初の下線が出るまで待たされ、
+ * 小さくするとリクエストの数だけ増える。
+ */
 export const CHUNK_SIZE = 32;
 
 /**

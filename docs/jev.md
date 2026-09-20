@@ -69,6 +69,21 @@ Authorization: Bearer $TYPESAFE_API_KEY
 - `choice` → `{ type, choice, confidence, probabilities }`
 - `score` → `{ type, score, confidence, legend, probabilities }`
 
+## 鍵を送ってよい宛先
+
+`TYPESAFE_BASE_URL` はBearerのAPIキーを載せて投げる先なので、**httpsであれば何でもよい**
+わけではない。httpsは経路を守るが、相手が誰かは保証しない。環境変数を書ける人が
+手元のホストへ鍵を転送できてしまう。
+
+受け付けるのは次の3つだけ。
+
+- `https://api.typesafe.ai`（既定）
+- ループバックの `http`（`localhost` / `127.0.0.1` / `::1`）— `tools/jev-stub.mjs` 用
+- `TYPESAFE_ALLOWED_HOSTS` に明示したホスト
+
+3つ目はゲートウェイ経由の構成のために開けてある。既定に入れていないのは、
+**鍵の転送先を増やすのは意図して行うべき設定**だから。
+
 ## 鍵が無いとき
 
 `TYPESAFE_API_KEY` が無ければ `/api/providers` の `jev` が `false` になり、
