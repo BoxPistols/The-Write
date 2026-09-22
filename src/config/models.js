@@ -8,7 +8,7 @@ export const PROVIDERS = {
 // secsPerKChar: 1000文字あたりの推定処理秒数（プログレス表示用）
 export const AVAILABLE_MODELS = [
   // OpenAI
-  { id: 'gpt-5.6-luna', provider: 'openai', name: 'GPT-5.6 Luna', description: '高品質・低価格', inputPrice: 0.20, outputPrice: 1.20, speed: 4, quality: 4, secsPerKChar: 5 },
+  { id: 'gpt-6-luna', provider: 'openai', name: 'GPT-6 Luna', description: '高品質・低価格', inputPrice: 0.10, outputPrice: 0.50, speed: 4, quality: 4, secsPerKChar: 5 },
 
   // Google Gemini
   { id: 'gemini-2.5-flash', provider: 'gemini', name: 'Gemini 2.5 Flash', description: '最速・最安', inputPrice: 0.10, outputPrice: 0.40, speed: 5, quality: 3, secsPerKChar: 4 },
@@ -36,9 +36,9 @@ export function autoSelectModel(charCount, isAvailable) {
   return sorted[0]?.id || DEFAULT_MODEL_ID;
 }
 
-// .envで VITE_DEFAULT_MODEL を指定可能（例: VITE_DEFAULT_MODEL=gpt-5.6-luna）
+// .envで VITE_DEFAULT_MODEL を指定可能（例: VITE_DEFAULT_MODEL=gpt-6-luna）
 const envDefault = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEFAULT_MODEL;
-export const DEFAULT_MODEL_ID = (envDefault && AVAILABLE_MODELS.some((m) => m.id === envDefault)) ? envDefault : 'gpt-5.6-luna';
+export const DEFAULT_MODEL_ID = (envDefault && AVAILABLE_MODELS.some((m) => m.id === envDefault)) ? envDefault : 'gpt-6-luna';
 
 export const getModel = (id) => AVAILABLE_MODELS.find((m) => m.id === id);
 export const getProvider = (id) => getModel(id)?.provider;
