@@ -50,7 +50,9 @@ Jevは文章を作らないので、1文の判定が生成の1往復より桁で
 
 ## 契約
 
-エンドポイントは `POST /v1/systemone` の1本だけ。
+判定に使うエンドポイントは `POST /v1/systemone` の1本だけ。
+ほかに `GET /v1/models` があり（公式SDKの `Models.list()` が叩く先）、
+判定を投げずに鍵の疎通だけ確かめたいので `testJevConnection()` はそちらを使う。
 公式SDK（`@typesafe-ai/sdk`）は入れず、`api/_jev.js` に素のfetchで書いている。
 他のプロバイダーを `api/_shared.js` が同じ形で扱っているため、ここだけSDKに寄せると
 読み口が割れるわりに、省けるのはリトライとタイムアウトの数十行だけになる。
@@ -69,6 +71,19 @@ Authorization: Bearer $TYPESAFE_API_KEY
 - `choice` → `{ type, choice, confidence, probabilities }`
 - `score` → `{ type, score, confidence, legend, probabilities }`
 
+## 待ち時間と投げ直し
+
+既定のタイムアウトは6秒（SDKの既定は10秒）。入力中の画面では、遅れて返った判定は
+次の打鍵で上書きされて捨てられるので、長く待っても画面が遅く見えるだけになる。
+
+タイムアウトは投げ直さない。6秒は「これを過ぎた判定はもう使わない」という上限であって、
+1回あたりの上限ではない。投げ直すと6秒×3回に待ち時間が乗り、1文に19秒かける一方で
+その答えはもう使われない。投げ直すのは、速く落ちる側だけ——
+
+- 繋がらなかったとき（DNS・接続断）→ 300ms・600msを空けて最大3回
+- 408 / 429 / 5xx → 同じ待ち。`retry-after-ms` か `retry-after` があればそれに従う（上限5秒）
+- 400番台のその他 → そのまま返す。投げ直しても同じ
+
 ## 鍵を送ってよい宛先
 
 `TYPESAFE_BASE_URL` はBearerのAPIキーを載せて投げる先なので、**httpsであれば何でもよい**
@@ -78,7 +93,8 @@ Authorization: Bearer $TYPESAFE_API_KEY
 受け付けるのは次の3つだけ。
 
 - `https://api.typesafe.ai`（既定）
-- ループバックの `http`（`localhost` / `127.0.0.1` / `::1`）— `tools/jev-stub.mjs` 用
+- ループバックの `http`（`localhost` / `127.0.0.1` / `::1`）— 手元に立てたスタブ用
+  （スタブ本体 `tools/jev-stub.mjs` はトリアージのPRで入る）
 - `TYPESAFE_ALLOWED_HOSTS` に明示したホスト
 
 3つ目はゲートウェイ経由の構成のために開けてある。既定に入れていないのは、
