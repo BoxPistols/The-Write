@@ -80,15 +80,15 @@ test('応答が返らなければ待ち続けず504にする', async () => {
     attempts += 1;
     init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
   });
-  const startedAt = Date.now();
   await assert.rejects(
     () => systemOne({ state: 'あ', questions: QUESTIONS }, { timeoutMs: 40 }),
     (e) => e.status === 504 && /timed out/.test(e.message)
   );
   // timeoutMs は「これを過ぎた判定はもう使わない」という上限。投げ直すと 40ms×3 に
   // 待ちが乗って上限が意味を失うので、1回で諦めることまで見る。
+  // 経過時間そのものは測らない。遅い実行環境では正しい実装でも延びる。
+  // 待ちが乗るのは投げ直したときだけなので、回数を見れば足りる。
   assert.equal(attempts, 1);
-  assert.ok(Date.now() - startedAt < 200, `1回分の待ちで戻るはずが ${Date.now() - startedAt}ms かかった`);
 });
 
 test('繋がらなかったときは投げ直す（タイムアウトと違って速く落ちる）', async () => {
