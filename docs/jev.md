@@ -93,8 +93,7 @@ Authorization: Bearer $TYPESAFE_API_KEY
 受け付けるのは次の3つだけ。
 
 - `https://api.typesafe.ai`（既定）
-- ループバックの `http`（`localhost` / `127.0.0.1` / `::1`）— 手元に立てたスタブ用
-  （スタブ本体 `tools/jev-stub.mjs` はトリアージのPRで入る）
+- ループバックの `http`（`localhost` / `127.0.0.1` / `::1`）— `tools/jev-stub.mjs` 用
 - `TYPESAFE_ALLOWED_HOSTS` に明示したホスト
 
 3つ目はゲートウェイ経由の構成のために開けてある。既定に入れていないのは、
