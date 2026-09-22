@@ -66,6 +66,26 @@ test('429はRetry-Afterに従って引き直す', async () => {
   assert.equal(r.answers.ok.noul, 0.5);
 });
 
+test('529（混雑）は引き直す', async () => {
+  let attempts = 0;
+  globalThis.fetch = async () => {
+    attempts += 1;
+    if (attempts === 1) return jsonResponse({ error: 'overloaded' }, { status: 529 });
+    return jsonResponse({ model: 'jev-1', answers: { ok: { type: 'noul', noul: 0.5 } }, usage: {} });
+  };
+  const r = await systemOne({ state: 'あ', questions: QUESTIONS });
+  assert.equal(attempts, 2);
+  assert.equal(r.answers.ok.noul, 0.5);
+});
+
+test('500は引き直さない', async () => {
+  // 投げ直しても同じ答えが返る。1文につき1回呼ぶので、無駄な往復が回数の上限を削る。
+  let attempts = 0;
+  globalThis.fetch = async () => { attempts += 1; return jsonResponse({ error: 'boom' }, { status: 500 }); };
+  await assert.rejects(() => systemOne({ state: 'あ', questions: QUESTIONS }), (e) => e.status === 500);
+  assert.equal(attempts, 1);
+});
+
 test('400は引き直さずそのまま返す', async () => {
   let attempts = 0;
   globalThis.fetch = async () => { attempts += 1; return jsonResponse({ error: 'bad' }, { status: 400 }); };
