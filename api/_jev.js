@@ -47,7 +47,7 @@ function allowedHosts() {
  * 宛先を決める。
  * ここにはBearerのAPIキーを載せて投げるので、平文になる設定も、
  * 許可していないホストも通さない。手元のループバックだけは例外にする。
- * tools/jev-stub.mjsがそこに立つ。
+ * 手元に立てたスタブサーバーがそこに入る。
  * @returns {string} 末尾のスラッシュを落としたURL
  */
 function resolveBaseURL() {
@@ -251,8 +251,13 @@ export async function systemOne(request, options = {}) {
       if (err?.status) throw err;
       if (options.signal?.aborted) throw aborted();
 
-      const message = timedOut ? `Jev request timed out after ${timeoutMs}ms` : `Jev connection failed: ${err?.message || err}`;
-      lastError = { status: timedOut ? 504 : 502, message };
+      // タイムアウトは投げ直さない。timeoutMs は「この時間を過ぎた判定はもう使わない」という
+      // 上限であって、1回あたりの上限ではない。ここで再試行すると 6s×3 に待ち時間が乗って
+      // 19秒かかり、その間に打鍵が進んで答えのほうが捨てられる。
+      // 繋がらなかった側（DNS・接続断）は速く落ちるので、そちらだけ投げ直す。
+      if (timedOut) throw { status: 504, message: `Jev request timed out after ${timeoutMs}ms` };
+
+      lastError = { status: 502, message: `Jev connection failed: ${err?.message || err}` };
       if (attempt < MAX_RETRIES) {
         await sleep(300 * 2 ** attempt, options.signal);
         continue;

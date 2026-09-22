@@ -75,13 +75,30 @@ test('400は引き直さずそのまま返す', async () => {
 
 test('応答が返らなければ待ち続けず504にする', async () => {
   // 遅れた判定は次の打鍵で上書きされて捨てられる。待ち続けるほうが画面は遅く見える。
+  let attempts = 0;
   globalThis.fetch = (url, init) => new Promise((_, reject) => {
+    attempts += 1;
     init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
   });
+  const startedAt = Date.now();
   await assert.rejects(
-    () => systemOne({ state: 'あ', questions: QUESTIONS }, { timeoutMs: 10 }),
+    () => systemOne({ state: 'あ', questions: QUESTIONS }, { timeoutMs: 40 }),
     (e) => e.status === 504 && /timed out/.test(e.message)
   );
+  // timeoutMs は「これを過ぎた判定はもう使わない」という上限。投げ直すと 40ms×3 に
+  // 待ちが乗って上限が意味を失うので、1回で諦めることまで見る。
+  assert.equal(attempts, 1);
+  assert.ok(Date.now() - startedAt < 200, `1回分の待ちで戻るはずが ${Date.now() - startedAt}ms かかった`);
+});
+
+test('繋がらなかったときは投げ直す（タイムアウトと違って速く落ちる）', async () => {
+  let attempts = 0;
+  globalThis.fetch = async () => { attempts += 1; throw new Error('ECONNREFUSED'); };
+  await assert.rejects(
+    () => systemOne({ state: 'あ', questions: QUESTIONS }),
+    (e) => e.status === 502 && /connection failed/.test(e.message)
+  );
+  assert.equal(attempts, 3);
 });
 
 test('呼び出し側の中断はタイムアウトと区別する', async () => {
@@ -164,7 +181,7 @@ test('非ループバックのhttpは宛先にしない', async () => {
 });
 
 test('ループバックのhttpは通す', async () => {
-  // tools/jev-stub.mjs が手元に立つ。
+  // 手元に立てたスタブサーバーがここに入る。
   for (const base of ['http://localhost:8787', 'http://127.0.0.1:8787', 'http://[::1]:8787']) {
     process.env.TYPESAFE_BASE_URL = base;
     let seen = '';
