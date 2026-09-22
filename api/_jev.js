@@ -15,10 +15,13 @@ const DEFAULT_TIMEOUT_MS = 6000;
 
 // 1リクエストにまとめる並列数。文ごとに1リクエスト投げるので、
 // ブラウザの6本制限ではなくサーバー側で束ねる。
-const DEFAULT_CONCURRENCY = 6;
+// 同時に走らせるのは5件程度までにする（上流の目安）。
+const DEFAULT_CONCURRENCY = 5;
 const MAX_CONCURRENCY = 12;
 
-const RETRY_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+// 投げ直すのは混んでいるときだけ。500や422を投げ直しても同じ答えが返るうえ、
+// 1文につき1回呼ぶので、無駄な往復がそのまま回数の上限を削る。
+const RETRY_STATUSES = new Set([429, 529]);
 const MAX_RETRIES = 2;
 
 // 記録した応答で回すときだけ、手元のhttpを許す。
