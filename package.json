@@ -11,7 +11,9 @@
     "preview": "vite preview",
     "start": "node server.js",
     "sync:cliche": "node scripts/sync-dead-cliche.mjs",
-    "test": "node --test \"test/**/*.test.js\""
+    "test": "node --test \"test/**/*.test.js\"",
+    "bench": "node bench/run.mjs",
+    "bench:report": "node bench/report.mjs"
   },
   "dependencies": {
     "cors": "^2.8.5",
