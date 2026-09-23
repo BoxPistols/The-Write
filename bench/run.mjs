@@ -22,7 +22,7 @@ import { systemOneBatch } from '../api/_jev.js';
 import { analyzeRequest } from '../api/_shared.js';
 import { buildAnalyzePrompt } from '../src/config/analyzePrompt.js';
 import { SENTENCE_QUESTIONS, verdictOf } from '../src/config/jevQuestions.js';
-import { AVAILABLE_MODELS } from '../src/config/models.js';
+import { AVAILABLE_MODELS, DEFAULT_MODEL_ID } from '../src/config/models.js';
 import { buildDocuments } from './documents.mjs';
 import { percentile, mean, prf, costUsd, addUsage, mapSuggestionsToSentences } from './metrics.mjs';
 
@@ -33,7 +33,9 @@ const { values: args } = parseArgs({
   options: {
     mock: { type: 'boolean', default: false },
     repeat: { type: 'string', default: '3' },
-    model: { type: 'string', default: 'gpt-5.6-luna' },
+    // 既定はアプリと同じものを使う。ここに書き写すと、モデルを入れ替えたときに
+    // ベンチだけ古いモデルを測り続ける。
+    model: { type: 'string', default: DEFAULT_MODEL_ID },
     sizes: { type: 'string', default: '8,20,40' },
     out: { type: 'string' },
   },
