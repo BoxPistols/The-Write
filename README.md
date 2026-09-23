@@ -42,7 +42,7 @@ npm test
 Jevを挟む前と後を、同じ文書・同じプロンプトで実測する。詳しくは [bench/README.md](bench/README.md)。
 
 ```bash
-TYPESAFE_API_KEY=... OPENAI_API_KEY=... npm run bench
+npm run bench          # 鍵は .env から読む
 npm run bench:report   # → docs/jev-benchmark.md
 ```
 
