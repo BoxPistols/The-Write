@@ -43,14 +43,18 @@ export function makeVerdictCache(limit = 500) {
  * 今の本文と手元の判定を突き合わせ、投げ直す文だけを選ぶ。
  * 同じ文が本文に2回出てきたら、判定は1回で足りる。
  *
+ * saltには「文以外で判定を変えるもの」を渡す。今は文書の目的で、これを
+ * 鍵に混ぜないと、目的を切り替えても前の目的の判定が使い回される。
+ *
  * @param {Array<{text: string, start: number, end: number, index: number}>} sentences
  * @param {ReturnType<typeof makeVerdictCache>} cache
+ * @param {string} [salt] 文書の目的など、判定の前提が変わるもの
  * @returns {{units: Array, toJudge: Array, cachedCount: number}}
  */
-export function planJudgements(sentences, cache) {
+export function planJudgements(sentences, cache, salt = '') {
   const units = sentences.map((s, i) => ({
     ...s,
-    key: hashSentence(s.text),
+    key: hashSentence(salt ? `${salt}\u0000${s.text}` : s.text),
     before: sentences[i - 1]?.text || '',
     after: sentences[i + 1]?.text || '',
   }));
@@ -125,9 +129,16 @@ export function summarize(units, verdicts) {
  * 隣り合う文はまとめて1つの塊にする。細切れにすると、生成側が
  * 前後の関係を見失って同じ主語を何度も足す。
  *
+ * 塊の中は本文から切り出す。文をつなぎ直すと、改行で区切られていた見出しや
+ * 箇条書きが1行に潰れ（「はじめに本記事では…- 最適化を行う」）、生成側が返す
+ * originalが本文のどこにも無い文字列になって、差し替えが効かなくなる。
+ *
+ * @param {Array} units
+ * @param {Map} verdicts
+ * @param {string} [text] 本文。渡すと塊の中を原文のまま切り出す
  * @returns {{text: string, sentences: Array, skipped: number}}
  */
-export function triageScope(units, verdicts) {
+export function triageScope(units, verdicts, text = null) {
   const picked = units.filter((u) => verdicts.get(u.key)?.flagged);
   if (!picked.length) return { text: '', sentences: [], skipped: units.length };
 
@@ -135,16 +146,26 @@ export function triageScope(units, verdicts) {
   let current = null;
   for (const u of picked) {
     if (current && u.index === current.lastIndex + 1) {
+      current.gaps.push(u.start - current.end);
       current.parts.push(u.text);
+      current.end = u.end;
       current.lastIndex = u.index;
     } else {
-      current = { parts: [u.text], lastIndex: u.index };
+      current = { parts: [u.text], gaps: [], start: u.start, end: u.end, lastIndex: u.index };
       blocks.push(current);
     }
   }
 
+  // 本文があれば、塊の中はそこから切り出す。無いときは、文のオフセットから
+  // 間に何か挟まっていたかだけは分かるので、隙間のある境目に改行を入れる。
+  // 何も入れずにつなぐと、改行で区切られていた行が1行に潰れる。
+  const glue = (b) => b.parts.reduce((acc, part, i) => (
+    i === 0 ? part : acc + (b.gaps[i - 1] > 0 ? '\n' : '') + part
+  ), '');
+  const cut = (b) => (typeof text === 'string' ? text.slice(b.start, b.end) : glue(b));
+
   return {
-    text: blocks.map((b) => b.parts.join('')).join('\n'),
+    text: blocks.map(cut).join('\n'),
     sentences: picked,
     skipped: units.length - picked.length,
   };
