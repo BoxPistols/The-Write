@@ -1,6 +1,11 @@
+import { hasJevKey, testJevConnection } from './_jev.js';
+
 const ENV_KEYS = {
   openai: 'OPENAI_API_KEY',
   gemini: 'GEMINI_API_KEY',
+  // Jevは文章を書かないので生成モデルの一覧には出さないが、
+  // 鍵の有無と疎通確認は他のプロバイダーと同じ窓口から見せる。
+  jev: 'TYPESAFE_API_KEY',
 };
 
 export function setCorsHeaders(res) {
@@ -20,6 +25,7 @@ export function getAvailableProviders() {
   return {
     openai: !!process.env.OPENAI_API_KEY,
     gemini: !!process.env.GEMINI_API_KEY,
+    jev: hasJevKey(),
   };
 }
 
@@ -129,6 +135,8 @@ export async function testConnection(provider, apiKey) {
       }
       return true;
     }
+    case 'jev':
+      return testJevConnection(apiKey);
     default:
       throw { status: 400, message: `Unknown provider: ${provider}` };
   }

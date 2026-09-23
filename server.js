@@ -8,6 +8,7 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { analyzeRequest, getAvailableProviders, testConnection, resolveKey } from './api/_shared.js';
+import { respondToJev } from './api/jev.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -73,6 +74,9 @@ app.post('/api/analyze', async (req, res) => {
     res.status(status).json({ error: message });
   }
 });
+
+// ─── Jev (TypeSafe AI) Endpoint ────────────────────
+app.post('/api/jev', (req, res) => respondToJev(req, res));
 
 // ─── Connection Test Endpoint ──────────────────────
 app.post('/api/test-connection', async (req, res) => {

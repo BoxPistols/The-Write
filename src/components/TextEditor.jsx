@@ -17,6 +17,10 @@ import { canUse, recordUsage, getRemaining, getResetTime, RATE_LIMIT, hasUserKey
 import { OUTPUT_TARGETS, listTargets, getTarget, targetInstruction, markdownRule, DEFAULT_TARGET_ID } from '../config/outputTargets';
 import { sanitizeForTarget, summarizeRemovals } from '../utils/sanitize';
 import { autoFix, checkText, countBySeverity, diffReport, getWritingGuard } from '../utils/deadCliche';
+import { useJevTriage } from '../hooks/useJevTriage';
+import { judgeRewrites } from '../utils/jevClient';
+import JevMeter from './JevMeter';
+import { buildAnalyzePrompt } from '../config/analyzePrompt';
 
 // {key}形式の穴埋め。文言はlocales側に置き、ここでは組み立てだけ行う。
 const fmt = (key, vars) => Object.entries(vars).reduce((acc, [k, v]) => acc.replaceAll(`{${k}}`, v), t(key));
@@ -107,7 +111,7 @@ function ClicheDetails({ violations }) {
  * 検査で0件だったことを「問題なし」と読ませないため、検査範囲を常に併記する。
  */
 function ResultReport({ report }) {
-  const { removed, fixed, cliche, clicheError, diff, targetLabel, unchanged } = report;
+  const { removed, fixed, cliche, clicheError, diff, targetLabel, unchanged, jevGate, jevGateError } = report;
   const counts = cliche?.counts;
   const total = cliche ? cliche.violations.length : 0;
 
@@ -174,6 +178,26 @@ function ResultReport({ report }) {
           </>
         )}
       </Row>
+
+      {(jevGate || jevGateError) && (
+        <Row label={t('jevGateTitle')}>
+          {jevGateError ? (
+            // 検証できなかったことを「通った」として見せない。
+            <span style={{ color: 'var(--cat-grammar)' }}>{fmt('jevGateFailed', { error: jevGateError })}</span>
+          ) : (
+            <>
+              <div style={{ color: jevGate.accept ? 'var(--accept)' : 'var(--cat-spelling)' }}>
+                {jevGate.accept
+                  ? t('jevGateAccepted')
+                  : jevGate.reason === 'meaning' ? t('jevGateMeaning') : t('jevGateNotImproved')}
+              </div>
+              <div style={{ color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                improved {jevGate.improved.toFixed(2)} / meaningKept {jevGate.meaningKept.toFixed(2)} / awkward {jevGate.awkward.toFixed(2)}
+              </div>
+            </>
+          )}
+        </Row>
+      )}
 
       <Row label={t('reportDiff')}>
         {diff.hasWarnings ? (
@@ -257,68 +281,9 @@ const CAT_STYLES = {
   'ai-writing': { color: 'var(--cat-ai-writing)', bg: 'var(--cat-ai-writing-bg)' },
 };
 
-const analyzeViaProxy = async (model, text, clientKeys, customInstruction = '') => {
+const analyzeViaProxy = async (model, text, clientKeys, customInstruction = '', isFragment = false) => {
   const isJa = locale.startsWith('ja');
-  const customPart = customInstruction.trim()
-    ? `\n\n${isJa ? 'ユーザーからの追加指示' : 'Additional instructions from the user'}: ${customInstruction.trim()}`
-    : '';
-  const userPrompt = isJa
-    ? `あなたはプロの日本語編集者です。以下の文章を分析し、改善提案を提示してください。${customPart}
-
-各提案はJSON配列で、各要素は以下の形式にしてください：
-- "type": "grammar", "spelling", "punctuation", "style", "clarity", "ai-writing" のいずれか
-- "original": 変更対象の原文（完全一致）
-- "suggestion": 改善後のテキスト
-- "explanation": 変更理由の簡潔な説明（日本語で）
-
-"ai-writing" タイプは、AI生成文に特有のパターンに使用してください：
-- 構造の定型化：「以下では〜を説明します」「結論から言うと」等の前置き宣言、STEP/ステップによる構造化
-- 「さらに」「また」「したがって」「そのため」「加えて」等の接続詞の過剰使用
-- 同じ語尾の3回以上の連続（「〜です。〜です。〜です。」等）
-- 「最適化」「本質」「価値を最大化」「エコシステム」「ランドスケープ」等の抽象的バズワード
-- 「一概には言えませんが」「場合によります」等の過度なヘッジング（逃げ表現）
-- 「参考になれば幸いです」「ぜひ活用してみてください」等の定型的な締め
-- 「非常に重要です」「大きなメリット」等の根拠のない評価語
-- 「〜ではなく〜です」（not A but B）構文の多用
-- 「羅針盤」「土台」「エンジン」「設計図」等の使い古された比喩
-- 太字ヘッダー＋コロン＋説明文の箇条書きパターン（インラインヘッダー）
-- 「〜することができます」等の冗長な表現（→「〜できます」）
-- Markdown記法の混入（**太字**、#見出しなど）
-- —（emダッシュ）の多用
-- 3つの並列要素を無理に作る（ルール・オブ・スリー）
-ai-writing の提案では、人間が書いたように自然な日本語に書き換えてください。
-
-有効なJSON配列のみを出力してください。それ以外のテキストは一切出力しないでください。
-
-分析対象の文章：
-${text}`
-    : `You are a professional writing assistant. Analyze the following text and provide suggestions for improvement.${customPart}
-
-For each suggestion, provide a JSON array where each item has:
-- "type": one of "grammar", "spelling", "punctuation", "style", "clarity", "ai-writing"
-- "original": the exact text that should be changed
-- "suggestion": the improved text
-- "explanation": brief explanation of the change (in English)
-
-Use "ai-writing" type for patterns typical of AI-generated text, including:
-- Formulaic structure: long preambles, announcing structure in body text, STEP formatting
-- Overuse of abstract buzzwords, hedging language, or cliché metaphors
-- Repetitive sentence-ending patterns or excessive conjunctions
-- Formulaic closings ("I hope this helps", "Feel free to reach out")
-- Inline-header bullet lists (bold header + colon + description)
-- Em dash (—) overuse
-- Negative parallelisms ("It's not just X; it's Y")
-- Rule of three overuse (forcing ideas into triplets)
-- Elegant variation / excessive synonym cycling
-- Sycophantic or overly agreeable tone
-- Filler phrases ("In order to", "Due to the fact that")
-- Generic positive conclusions ("The future looks bright")
-For ai-writing suggestions, rewrite to sound more natural and human.
-
-Respond ONLY with a valid JSON array. No other text.
-
-Text to analyze:
-${text}`;
+  const userPrompt = buildAnalyzePrompt({ isJa, text, customInstruction, isFragment });
 
   const res = await fetch('/api/analyze', {
     method: 'POST',
@@ -826,6 +791,11 @@ export default function TextEditor() {
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [charCount, setCharCount] = useState(0);
+  // Jevへ文単位で投げるための本文。contentEditableの中身は状態に載っていないので、
+  // 文字数と同じ場所で写しを取る。
+  const [plainText, setPlainText] = useState('');
+  // 直近の校正で、何文のうち何文を生成モデルに送ったか。削った事実を隠さない。
+  const [triageInfo, setTriageInfo] = useState(null);
   const [openDropdown, setOpenDropdown] = useState(null);
   const [copied, setCopied] = useState(false);
   const [selectedModel, setSelectedModel] = useState(() => {
@@ -860,7 +830,9 @@ export default function TextEditor() {
 
   const refreshEditorContent = useCallback(() => {
     if (!editorRef.current) return;
-    setCharCount((editorRef.current.innerText || '').trim().length);
+    const raw = editorRef.current.innerText || '';
+    setCharCount(raw.trim().length);
+    setPlainText(raw);
     saveEditorContent({ html: editorRef.current.innerHTML });
   }, []);
 
@@ -931,15 +903,16 @@ export default function TextEditor() {
     if (saved?.html) {
       editorRef.current.innerHTML = saved.html;
     }
-    setCharCount((editorRef.current.innerText || '').trim().length);
+    const raw = editorRef.current.innerText || '';
+    setCharCount(raw.trim().length);
+    setPlainText(raw);
   }, []);
 
   useEffect(() => {
     let snapshotTimer = null;
     const handleInput = () => {
       if (!editorRef.current) return;
-      setCharCount((editorRef.current.innerText || '').trim().length);
-      saveEditorContent({ html: editorRef.current.innerHTML });
+      refreshEditorContent();
       // 入力操作のスナップショットをデバウンス（1秒間隔）
       clearTimeout(snapshotTimer);
       snapshotTimer = setTimeout(() => snapshot(), 1000);
@@ -949,7 +922,7 @@ export default function TextEditor() {
       editor.addEventListener('input', handleInput);
       return () => { editor.removeEventListener('input', handleInput); clearTimeout(snapshotTimer); };
     }
-  }, [snapshot]);
+  }, [snapshot, refreshEditorContent]);
 
   const execCmd = (command, value = null) => {
     document.execCommand(command, false, value);
@@ -1041,19 +1014,62 @@ export default function TextEditor() {
     return true;
   }, []);
 
+  // 入力中の判定。鍵が無ければ動かず、画面には理由だけを出す。
+  const jevAvailable = !!availableProviders.jev || !!clientKeys.jev;
+  const jevPurpose = useMemo(() => {
+    const target = getTarget(outputTargetId);
+    return target ? target.label[locale.startsWith('ja') ? 'ja' : 'en'] : '';
+  }, [outputTargetId]);
+  const jev = useJevTriage(plainText, { enabled: jevAvailable, purpose: jevPurpose, clientKeys });
+  // 判定は打鍵のたびに変わる。handleAnalyzeの依存に入れると、キー割り当ての
+  // useEffectが打鍵ごとに貼り直しになるので、最新の判定は参照で渡す。
+  const jevRef = useRef(jev);
+  jevRef.current = jev;
+
+  // メーターの一覧から本文の該当箇所へ飛ぶ。
+  // innerTextはブロックの境目に改行を足すので、文のオフセットはテキストノードの
+  // 位置と一致しない。既存のapplySuggestionと同じく本文から探す。
+  const selectSentence = useCallback((unit) => {
+    const root = editorRef.current;
+    if (!root) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      const idx = node.textContent.indexOf(unit.text);
+      if (idx === -1) continue;
+      const range = document.createRange();
+      range.setStart(node, idx);
+      range.setEnd(node, idx + unit.text.length);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      node.parentElement?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      root.focus();
+      return;
+    }
+  }, []);
+
   const handleAnalyze = useCallback(async () => {
     const text = editorRef.current?.innerText?.trim();
     if (!text) { alert(t('pleaseEnterText')); return; }
     if (!checkRateLimit()) return;
 
-    const modelId = resolveModel(text.length);
+    // Jevが全文を見終わっているときだけ、指摘の立った文に絞って送る。
+    // 見終わっていない文を外すと「判定していない」を「問題なし」として捨てることになる。
+    const live = jevRef.current;
+    const scope = jevAvailable && live.status === 'ready' && live.summary.coverage === 1 ? live.scope() : null;
+    const useScope = !!scope?.text;
+    const payload = useScope ? scope.text : text;
+
+    const modelId = resolveModel(payload.length);
     setIsAnalyzing(true);
     setSuggestions([]);
     setLastUsage(null);
-    startProgress(modelId, text.length);
+    setTriageInfo(useScope ? { sent: scope.sentences.length, total: scope.sentences.length + scope.skipped } : null);
+    startProgress(modelId, payload.length);
 
     try {
-      const data = await analyzeViaProxy(modelId, text, clientKeys, customInstruction);
+      const data = await analyzeViaProxy(modelId, payload, clientKeys, customInstruction, useScope);
       recordUsage(); setRemaining(getRemaining());
       if (data.usage) setLastUsage({ ...data.usage, model: modelId });
       const content = data.content?.[0]?.text || '';
@@ -1077,7 +1093,7 @@ export default function TextEditor() {
       alert(e.message?.includes('401') ? t('failedUnauthorized') : t('failedToAnalyze'));
     }
     finally { setIsAnalyzing(false); stopProgress(); }
-  }, [resolveModel, clientKeys, customInstruction, startProgress, stopProgress, checkRateLimit]);
+  }, [resolveModel, clientKeys, customInstruction, startProgress, stopProgress, checkRateLimit, jevAvailable]);
 
   const isJa = locale.startsWith('ja');
   const targets = useMemo(() => listTargets(isJa), [isJa]);
@@ -1117,8 +1133,28 @@ export default function TextEditor() {
     report.diff = diffReport(original, finalText);
     // 何も変わらなかったことを黙って返さない。利用者には失敗に見える。
     report.unchanged = finalText.trim() === original.trim();
+
+    // 書き換えの前後をJevに突き合わせる。diffReportは行数と数値しか見ないので、
+    // 数値を保ったまま意味が変わった書き換えは捕れない。
+    // 「自然になったか」と「意味が保たれているか」を別に尋ね、意味のほうを厳しく取る。
+    if (jevAvailable && !report.unchanged) {
+      try {
+        const { results } = await judgeRewrites(
+          [{ id: 'whole', original, rewritten: finalText }],
+          { clientKeys }
+        );
+        const r = results[0];
+        if (r?.ok) report.jevGate = r.gate;
+        else report.jevGateError = r?.error || 'unknown';
+      } catch (e) {
+        // 検証できなかったことを「通った」として見せない。
+        console.error('Jev gate failed:', e);
+        report.jevGateError = e.message || String(e);
+      }
+    }
+
     return { original, rewritten: finalText, report };
-  }, [isJa]);
+  }, [isJa, jevAvailable, clientKeys]);
 
   const handleRewrite = useCallback(async () => {
     const text = editorRef.current?.innerText?.trim();
@@ -1947,6 +1983,16 @@ export default function TextEditor() {
 
         {/* ─── Suggestions Panel ─────────────────── */}
         <div className={`suggestions-panel${rightOpen ? '' : ' collapsed'}`}>
+          <JevMeter
+            available={jevAvailable}
+            status={jev.status}
+            summary={jev.summary}
+            stats={jev.stats}
+            error={jev.error}
+            units={jev.units}
+            verdicts={jev.verdicts}
+            onSelect={selectSentence}
+          />
           <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid var(--border-primary)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
               <h2 style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 20, fontWeight: 600, color: 'var(--text-primary)' }}>
@@ -1981,6 +2027,13 @@ export default function TextEditor() {
                 </button>);
               })}
             </div>
+            {triageInfo && (
+              // 送った範囲を隠さない。全文を見た結果として指摘が少ないのか、
+              // 絞ったから少ないのかで、利用者の読み方が変わる。
+              <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                {fmt('jevTriageScope', { sent: triageInfo.sent, total: triageInfo.total })}
+              </div>
+            )}
           </div>
           <div style={{ flex: 1, overflow: 'auto', padding: '16px 16px' }}>
             {filteredSuggestions.length === 0 ? (
