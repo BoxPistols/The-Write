@@ -3,9 +3,12 @@
 Jevを入れた理由が本当に成り立っているかを、同じ文書・同じプロンプトで確かめる。
 
 ```bash
-# 実測（鍵が要る）
-TYPESAFE_API_KEY=... OPENAI_API_KEY=... npm run bench
+# 実測（鍵が要る）。鍵は .env に書いておけばそれを読む（アプリと同じ場所）
+npm run bench
 npm run bench:report          # → docs/jev-benchmark.md
+
+# その場だけ別の鍵で回すなら、前に置く（.envより優先される）
+TYPESAFE_API_KEY=... OPENAI_API_KEY=... npm run bench
 
 # 配線だけ確かめる（鍵が要らない。測定値ではない）
 node bench/run.mjs --mock
