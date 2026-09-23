@@ -37,12 +37,12 @@ export function useJevTriage(text, { enabled = true, purpose = '', clientKeys } 
   const [stats, setStats] = useState({ ttffMs: null, lastWallMs: null, judged: 0, cacheHits: 0 });
 
   const sentences = useMemo(() => splitSentences(text || ''), [text]);
-  const units = useMemo(() => planJudgements(sentences, cacheRef.current).units, [sentences]);
+  const units = useMemo(() => planJudgements(sentences, cacheRef.current, purpose).units, [sentences, purpose]);
 
   const run = useCallback(async () => {
     const runId = runIdRef.current;
     const cache = cacheRef.current;
-    const plan = planJudgements(splitSentences(text || ''), cache);
+    const plan = planJudgements(splitSentences(text || ''), cache, purpose);
 
     // 手元にある判定をまず画面へ返す。ここで返さないと、文を消しただけでも
     // 判定が消えたように見える。
@@ -89,8 +89,16 @@ export function useJevTriage(text, { enabled = true, purpose = '', clientKeys } 
       setStats({ ttffMs, lastWallMs: Math.round(performance.now() - startedAt), judged, cacheHits: plan.cachedCount });
       setStatus('ready');
 
-      // 上限で切った残りは、間を置かずに続きを拾う。
-      if (plan.toJudge.length > MAX_PER_RUN) run();
+      // 上限で切った残りは、間を置かずに続きを拾う。ただし前へ進んだときだけ。
+      //
+      // 進み具合を数え直さずに続けると、止まらない輪になる。失敗した文は
+      // キャッシュに入らないので同じ残りを投げ直し続けるし、文の種類が
+      // キャッシュの上限を超える長文でも、古い判定が押し出されて残りが減らない。
+      // どちらも画面は何も変わらないまま上流を叩き続ける。
+      if (plan.toJudge.length > MAX_PER_RUN) {
+        const left = planJudgements(splitSentences(text || ''), cache, purpose).toJudge.length;
+        if (left < plan.toJudge.length) run();
+      }
     } catch (e) {
       if (runIdRef.current !== runId || controller.signal.aborted) return;
       console.error('Jev triage failed:', e);
@@ -100,12 +108,14 @@ export function useJevTriage(text, { enabled = true, purpose = '', clientKeys } 
   }, [text, purpose, clientKeys]);
 
   useEffect(() => {
-    if (!enabled) { setStatus('idle'); return undefined; }
-    if (!(text || '').trim()) { setStatus('idle'); setVerdicts(new Map()); return undefined; }
-
-    // 走りを1つ進める。進めた時点で、走っている古い処理は自分で降りる。
+    // 走りを先に1つ進める。進めた時点で、走っている古い処理は自分で降りる。
+    // 早期returnの後ろに置くと、本文を消した瞬間に走っていた判定が生き残り、
+    // もう無い文の下線を書き戻してreadyにしてしまう。
     runIdRef.current += 1;
     abortRef.current?.abort();
+
+    if (!enabled) { setStatus('idle'); return undefined; }
+    if (!(text || '').trim()) { setStatus('idle'); setVerdicts(new Map()); return undefined; }
 
     const timer = setTimeout(run, DEBOUNCE_MS);
     return () => clearTimeout(timer);
@@ -116,7 +126,7 @@ export function useJevTriage(text, { enabled = true, purpose = '', clientKeys } 
   const summary = useMemo(() => summarize(units, verdicts), [units, verdicts]);
 
   /** 生成モデルへ送る範囲。指摘の立った文だけに絞る。 */
-  const scope = useCallback(() => triageScope(units, verdicts), [units, verdicts]);
+  const scope = useCallback(() => triageScope(units, verdicts, text || ''), [units, verdicts, text]);
 
   /** 閾値や質問を変えたあと、手元の判定を捨てて取り直す。 */
   const reset = useCallback(() => {

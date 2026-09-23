@@ -103,3 +103,26 @@ test('1件も立たなければ送る本文は空になる', () => {
   assert.equal(scope.text, '');
   assert.equal(scope.sentences.length, 0);
 });
+
+test('塊の中は本文から切り出す（改行を潰さない）', () => {
+  // つなぎ直すと、見出しや箇条書きが1行に潰れる。潰れた本文を送ると、
+  // 生成側が返すoriginalが本文のどこにも無い文字列になり、差し替えが効かない。
+  const text = 'はじめに\n本記事では、業務を最適化する方法を解説します。\n- 最適化を行う\n- 価値を最大化する';
+  const units = splitSentences(text).map((s) => ({ ...s, key: hashSentence(s.text) }));
+  const verdicts = new Map(units.map((u) => [u.key, verdict(3, true)]));
+  const scope = triageScope(units, verdicts, text);
+  assert.equal(scope.text, text);
+  for (const u of units) assert.ok(scope.text.includes(u.text), u.text);
+});
+
+test('文書の目的が変われば判定を引き直す', () => {
+  const sentences = splitSentences('これは文です。');
+  const cache = makeVerdictCache();
+  const a = planJudgements(sentences, cache, 'メール');
+  cache.set(a.units[0].key, verdict(1, false));
+
+  // 同じ目的なら手元の判定で足りる
+  assert.equal(planJudgements(sentences, cache, 'メール').toJudge.length, 0);
+  // 目的が変われば前提が変わるので、引き直す
+  assert.equal(planJudgements(sentences, cache, '社内向けの共有').toJudge.length, 1);
+});
