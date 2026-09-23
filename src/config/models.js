@@ -8,7 +8,7 @@ export const PROVIDERS = {
 // secsPerKChar: 1000文字あたりの推定処理秒数（プログレス表示用）
 export const AVAILABLE_MODELS = [
   // OpenAI
-  { id: 'gpt-5.6-luna', provider: 'openai', name: 'GPT-5.6 Luna', description: '高品質・低価格', inputPrice: 0.20, outputPrice: 1.20, speed: 4, quality: 4, secsPerKChar: 5 },
+  { id: 'gpt-6-luna', provider: 'openai', name: 'GPT-6 Luna', description: '高品質・低価格', inputPrice: 0.10, outputPrice: 0.50, speed: 4, quality: 4, secsPerKChar: 5 },
 
   // Google Gemini
   { id: 'gemini-2.5-flash', provider: 'gemini', name: 'Gemini 2.5 Flash', description: '最速・最安', inputPrice: 0.10, outputPrice: 0.40, speed: 5, quality: 3, secsPerKChar: 4 },
@@ -36,9 +36,27 @@ export function autoSelectModel(charCount, isAvailable) {
   return sorted[0]?.id || DEFAULT_MODEL_ID;
 }
 
-// .envで VITE_DEFAULT_MODEL を指定可能（例: VITE_DEFAULT_MODEL=gpt-5.6-luna）
-const envDefault = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEFAULT_MODEL;
-export const DEFAULT_MODEL_ID = (envDefault && AVAILABLE_MODELS.some((m) => m.id === envDefault)) ? envDefault : 'gpt-5.6-luna';
+// 何も指定が無いときに使うモデル。
+const FALLBACK_MODEL_ID = 'gpt-6-luna';
+
+/**
+ * 既定モデルを決める。知らないidを渡されたら既定に戻す。
+ * 綴り違いで黙って動かなくなるより、既定で動いたほうがよい。
+ *
+ * 画面（Vite）と ベンチ（Node）で読み先が違うので、値の取り出しは呼び出し側に任せ、
+ * ここは決め方だけを持つ。同じ規則を2か所に書くと、片方だけ直したときにずれる。
+ *
+ * @param {string} [envValue] VITE_DEFAULT_MODEL の値
+ */
+export function resolveDefaultModelId(envValue) {
+  return (envValue && AVAILABLE_MODELS.some((m) => m.id === envValue)) ? envValue : FALLBACK_MODEL_ID;
+}
+
+// .envで VITE_DEFAULT_MODEL を指定可能（例: VITE_DEFAULT_MODEL=gpt-6-luna）
+// import.meta.env はViteが差し込むので、画面ではこれで読める。
+export const DEFAULT_MODEL_ID = resolveDefaultModelId(
+  typeof import.meta !== 'undefined' ? import.meta.env?.VITE_DEFAULT_MODEL : undefined
+);
 
 export const getModel = (id) => AVAILABLE_MODELS.find((m) => m.id === id);
 export const getProvider = (id) => getModel(id)?.provider;

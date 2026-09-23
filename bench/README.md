@@ -48,7 +48,7 @@ node bench/report.mjs         # → bench/results/mock-*.md
 
 ```
 --repeat=3          繰り返し回数（p50/p95を取る）
---model=gpt-5.6-luna  生成モデル
+--model=<id>        生成モデル（既定はアプリと同じ DEFAULT_MODEL_ID）
 --sizes=8,20,40     文書ごとの文数
 --mock              記録した応答で回す
 --out=path.json     出力先
