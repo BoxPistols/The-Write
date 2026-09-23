@@ -17,6 +17,13 @@ import { parseArgs } from 'node:util';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import dotenv from 'dotenv';
+
+// アプリ（server.js）と同じように .env を読む。読まないと、.env に鍵を書いた人が
+// 「TYPESAFE_API_KEY が設定されていません」で止まる。鍵の置き場が2つあるように
+// 見えるのがそもそも間違いなので、同じ場所を見る。
+// dotenvは先勝ちなので、コマンドの前に書いた指定のほうが勝つ。
+dotenv.config({ path: ['.env.local', '.env'] });
 
 import { systemOneBatch } from '../api/_jev.js';
 import { analyzeRequest } from '../api/_shared.js';
