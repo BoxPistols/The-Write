@@ -5,7 +5,7 @@ AI搭載のリッチテキストエディタ。文法・スペル・句読点・
 ## 機能
 
 - 📝 リッチテキストエディタ（フォント、サイズ、色、配置、リスト等）
-- 🤖 OpenAI / Google Gemini APIによるテキスト分析
+- 🤖 OpenAI APIによるテキスト分析
 - ⚡ Jev (TypeSafe AI) による文単位の違和感判定（[docs/jev.md](docs/jev.md)）
 - 🎯 カテゴリ別の改善提案（文法/スペル/句読点/文体/明瞭さ）
 - 🌙 ダーク/ライトモード
@@ -17,7 +17,7 @@ AI搭載のリッチテキストエディタ。文法・スペル・句読点・
 ```bash
 npm install
 cp .env.example .env
-# OPENAI_API_KEY または GEMINI_API_KEY を設定
+# OPENAI_API_KEYを設定
 # 文単位の判定を使うなら TYPESAFE_API_KEY も設定する（任意）
 npm run dev
 ```
@@ -27,7 +27,7 @@ npm run dev
 - React 18 + Vite
 - Tailwind CSS
 - Express (API proxy)
-- OpenAI API / Google Gemini API
+- OpenAI API
 - TypeSafe AI (Jev) — 型付き判定
 - Lucide React Icons
 
