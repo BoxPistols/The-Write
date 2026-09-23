@@ -29,7 +29,7 @@ import { systemOneBatch } from '../api/_jev.js';
 import { analyzeRequest } from '../api/_shared.js';
 import { buildAnalyzePrompt } from '../src/config/analyzePrompt.js';
 import { SENTENCE_QUESTIONS, verdictOf } from '../src/config/jevQuestions.js';
-import { AVAILABLE_MODELS, DEFAULT_MODEL_ID } from '../src/config/models.js';
+import { AVAILABLE_MODELS, resolveDefaultModelId } from '../src/config/models.js';
 import { buildDocuments } from './documents.mjs';
 import { percentile, mean, prf, costUsd, addUsage, mapSuggestionsToSentences } from './metrics.mjs';
 
@@ -40,9 +40,13 @@ const { values: args } = parseArgs({
   options: {
     mock: { type: 'boolean', default: false },
     repeat: { type: 'string', default: '3' },
-    // 既定はアプリと同じものを使う。ここに書き写すと、モデルを入れ替えたときに
-    // ベンチだけ古いモデルを測り続ける。
-    model: { type: 'string', default: DEFAULT_MODEL_ID },
+    // 既定はアプリと同じ決め方にする。ここにidを書き写すと、モデルを入れ替えた
+    // ときにベンチだけ古いモデルを測り続ける。
+    //
+    // 値はここで取り出す。models.js の DEFAULT_MODEL_ID は import.meta.env から
+    // 読むので、Nodeでは常に素の既定になる。加えてimportは本文より先に評価される
+    // ので、モジュールの定数にすると上の dotenv.config() がまだ効いていない。
+    model: { type: 'string', default: resolveDefaultModelId(process.env.VITE_DEFAULT_MODEL) },
     sizes: { type: 'string', default: '8,20,40' },
     out: { type: 'string' },
   },

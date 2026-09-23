@@ -36,9 +36,27 @@ export function autoSelectModel(charCount, isAvailable) {
   return sorted[0]?.id || DEFAULT_MODEL_ID;
 }
 
+// 何も指定が無いときに使うモデル。
+const FALLBACK_MODEL_ID = 'gpt-6-luna';
+
+/**
+ * 既定モデルを決める。知らないidを渡されたら既定に戻す。
+ * 綴り違いで黙って動かなくなるより、既定で動いたほうがよい。
+ *
+ * 画面（Vite）と ベンチ（Node）で読み先が違うので、値の取り出しは呼び出し側に任せ、
+ * ここは決め方だけを持つ。同じ規則を2か所に書くと、片方だけ直したときにずれる。
+ *
+ * @param {string} [envValue] VITE_DEFAULT_MODEL の値
+ */
+export function resolveDefaultModelId(envValue) {
+  return (envValue && AVAILABLE_MODELS.some((m) => m.id === envValue)) ? envValue : FALLBACK_MODEL_ID;
+}
+
 // .envで VITE_DEFAULT_MODEL を指定可能（例: VITE_DEFAULT_MODEL=gpt-6-luna）
-const envDefault = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEFAULT_MODEL;
-export const DEFAULT_MODEL_ID = (envDefault && AVAILABLE_MODELS.some((m) => m.id === envDefault)) ? envDefault : 'gpt-6-luna';
+// import.meta.env はViteが差し込むので、画面ではこれで読める。
+export const DEFAULT_MODEL_ID = resolveDefaultModelId(
+  typeof import.meta !== 'undefined' ? import.meta.env?.VITE_DEFAULT_MODEL : undefined
+);
 
 export const getModel = (id) => AVAILABLE_MODELS.find((m) => m.id === id);
 export const getProvider = (id) => getModel(id)?.provider;
