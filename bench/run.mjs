@@ -2,7 +2,7 @@
 // Jevを挟む前と挟んだ後を、同じ文書・同じプロンプトで実測する。
 //
 //   TYPESAFE_API_KEY=... OPENAI_API_KEY=... node bench/run.mjs
-//   node bench/run.mjs --repeat=5 --model=gemini-2.5-flash
+//   node bench/run.mjs --repeat=5 --model=gpt-6-luna
 //   node bench/run.mjs --mock          配線だけを確かめる。測定値ではない
 //
 // 測るのは3つ。

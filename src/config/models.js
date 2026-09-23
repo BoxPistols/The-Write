@@ -2,16 +2,12 @@
 // speed: 1-5 (5が最速), quality: 1-5 (5が最高品質)
 export const PROVIDERS = {
   openai: { name: 'OpenAI', envKey: 'OPENAI_API_KEY' },
-  gemini: { name: 'Google Gemini', envKey: 'GEMINI_API_KEY' },
 };
 
 // secsPerKChar: 1000文字あたりの推定処理秒数（プログレス表示用）
 export const AVAILABLE_MODELS = [
   // OpenAI
   { id: 'gpt-6-luna', provider: 'openai', name: 'GPT-6 Luna', description: '高品質・低価格', inputPrice: 0.10, outputPrice: 0.50, speed: 4, quality: 4, secsPerKChar: 5 },
-
-  // Google Gemini
-  { id: 'gemini-2.5-flash', provider: 'gemini', name: 'Gemini 2.5 Flash', description: '最速・最安', inputPrice: 0.10, outputPrice: 0.40, speed: 5, quality: 3, secsPerKChar: 4 },
 ];
 
 /**
@@ -21,8 +17,8 @@ export const AVAILABLE_MODELS = [
  * @returns {string} モデルID
  */
 export function autoSelectModel(charCount, isAvailable) {
-  // プロバイダー優先順: openai > gemini
-  const providerOrder = ['openai', 'gemini'];
+  // プロバイダー優先順（画面で選べるのはOpenAIのみ）
+  const providerOrder = ['openai'];
   const available = providerOrder.find((p) => isAvailable(p));
   if (!available) return DEFAULT_MODEL_ID;
 
