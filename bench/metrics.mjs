@@ -69,16 +69,29 @@ export const addUsage = (a, b) => ({
  * originalは原文の一部なので、それを含む文を探す。
  * どの文にも当たらない指摘（原文に無い文字列を返してきた場合）は数に入れず、
  * unmatchedとして別に出す。黙って捨てると、生成側の的外れが見えなくなる。
+ *
+ * 当たり方は3つある。
+ * - originalが複数の文にまたがる → またいだ文すべてを指摘とみなす。
+ *   先頭の1文だけに当てると、その指摘で拾えた残りの文がrecallから落ちる
+ * - originalを含む文がちょうど1つ → その文
+ * - originalを含む文が複数（短い語を返してきたとき）→ どの文を指したのか
+ *   決められない。先頭に当てたうえでambiguousに数え、数字の出どころを残す
  */
 export function mapSuggestionsToSentences(suggestions, sentences) {
   const hit = new Set();
   let unmatched = 0;
+  let ambiguous = 0;
   for (const s of suggestions) {
     const original = (s?.original || '').trim();
     if (!original) { unmatched += 1; continue; }
-    const found = sentences.find((x) => x.text.includes(original) || original.includes(x.text));
-    if (found) hit.add(found.id);
-    else unmatched += 1;
+
+    const spans = sentences.filter((x) => original.includes(x.text));
+    if (spans.length) { for (const x of spans) hit.add(x.id); continue; }
+
+    const inside = sentences.filter((x) => x.text.includes(original));
+    if (!inside.length) { unmatched += 1; continue; }
+    if (inside.length > 1) ambiguous += 1;
+    hit.add(inside[0].id);
   }
-  return { flagged: hit, unmatched };
+  return { flagged: hit, unmatched, ambiguous };
 }

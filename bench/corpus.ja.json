@@ -45,7 +45,8 @@
 
     { "id": "p01", "gold": "ng", "kind": "punctuation", "text": "今回の変更は影響範囲が広いため事前に関係者へ周知したうえで段階的に適用する予定です" },
     { "id": "p02", "gold": "ng", "kind": "punctuation", "text": "私は、昨日、駅前の、新しくできた、書店に、行った。" },
-    { "id": "p03", "gold": "ng", "kind": "punctuation", "text": "本当ですか！！！信じられません！！！" },
+    { "id": "p03", "gold": "ng", "kind": "punctuation", "text": "本当ですか！！！" },
+    { "id": "p03b", "gold": "ng", "kind": "punctuation", "text": "信じられません！！！" },
 
     { "id": "t01", "gold": "ng", "kind": "style", "text": "この機能を活用することができますので、ぜひご活用ください。" },
     { "id": "t02", "gold": "ng", "kind": "style", "text": "当該案件につきましては、鋭意対応を進めさせていただいている次第でございます。" },
@@ -67,7 +68,8 @@
     { "id": "a03", "gold": "ng", "kind": "ai-writing", "text": "さらに、生産性を向上させることができます。" },
     { "id": "a04", "gold": "ng", "kind": "ai-writing", "text": "重要なのは、単なるツールの導入ではなく、組織文化の変革です。" },
     { "id": "a05", "gold": "ng", "kind": "ai-writing", "text": "以下の3つのポイントを押さえることで、成果を最大化できます。" },
-    { "id": "a06", "gold": "ng", "kind": "ai-writing", "text": "いかがでしたでしょうか。ぜひ本記事を参考に、活用してみてください。" },
+    { "id": "a06", "gold": "ng", "kind": "ai-writing", "text": "いかがでしたでしょうか。" },
+    { "id": "a06b", "gold": "ng", "kind": "ai-writing", "text": "ぜひ本記事を参考に、活用してみてください。" },
     { "id": "a07", "gold": "ng", "kind": "ai-writing", "text": "AIは非常に重要な技術であり、大きなメリットをもたらすエコシステムの土台となります。" }
   ]
 }

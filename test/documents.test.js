@@ -54,3 +54,20 @@ test('同じ種から同じ文書ができる', () => {
   const b = buildDocuments(corpus.sentences, [20]);
   assert.equal(a[0].text, b[0].text);
 });
+
+test('1項目が2文に割れるコーパスは、組み立てる前に弾く', () => {
+  // 組み立ててから気づくと、どの項目が原因か分からないまま落ちる。
+  const broken = [
+    { id: 'x1', gold: 'ok', text: '自然な文です。' },
+    { id: 'x2', gold: 'ng', text: '二文です。これで二つ目。' },
+  ];
+  assert.throws(() => buildDocuments(broken, [2]), /x2/);
+});
+
+test('コーパスの全文を使い切る大きさでも文に割り戻せる', () => {
+  // 既定の大きさだけ試していると、割り戻せない項目を見落とす。
+  for (const size of [8, 20, 40, corpus.sentences.length]) {
+    const [doc] = buildDocuments(corpus.sentences, [size]);
+    assert.equal(splitSentences(doc.text).length, doc.sentences.length, `size=${size}`);
+  }
+});

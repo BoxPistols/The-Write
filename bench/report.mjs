@@ -7,7 +7,7 @@
 // --mockで取った結果はdocs/に書かない。書けるようにすると、いつか偽の数字が
 // レポートの顔になる。モックの出力はbench/results/に、断り書き付きで置く。
 
-import { readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, basename } from 'node:path';
 import { updateLatencyChart } from './chart.mjs';
@@ -23,9 +23,15 @@ const times = (a, b) => (a && b ? `${(b / a).toFixed(1)}×` : '—');
 
 function latest() {
   const dir = join(__dirname, 'results');
-  const files = readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
+  // 名前順に並べてはいけない。ファイル名は live-... / mock-... で始まるので、
+  // 'live' < 'mock' により、実測のあとでも常に古いモックが最後に来る。
+  // 更新時刻で選ぶ。
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => ({ f, at: statSync(join(dir, f)).mtimeMs }))
+    .sort((a, b) => a.at - b.at);
   if (!files.length) throw new Error('bench/results/ に結果がない。先に node bench/run.mjs を回す。');
-  return join(dir, files[files.length - 1]);
+  return join(dir, files[files.length - 1].f);
 }
 
 function build(report) {
@@ -112,12 +118,12 @@ function build(report) {
     lines.push('コーパスの `gold` との突き合わせ。**片方だけ見ない。** 何も指摘しない実装は precision が、');
     lines.push('全部に指摘を出す実装は recall が満点になる。');
     lines.push('');
-    lines.push('| 文書 | 腕 | precision | recall | F1 | 取りこぼし | 誤検出 | 原文に無い指摘 |');
-    lines.push('|---|---|---|---|---|---|---|---|');
+    lines.push('| 文書 | 腕 | precision | recall | F1 | 取りこぼし | 誤検出 | 原文に無い指摘 | どの文か決まらない指摘 |');
+    lines.push('|---|---|---|---|---|---|---|---|---|');
     for (const [id, d] of docs) {
       for (const [label, a] of [['生成モデルだけ', d.llmOnly], ['Jevで選んでから', d.jevTriage]]) {
         const x = a.accuracy;
-        lines.push(`| ${id} | ${label} | ${pct(x.precision)} | ${pct(x.recall)} | ${pct(x.f1)} | ${x.fn} | ${x.fp} | ${num(a.unmatched, 1)} |`);
+        lines.push(`| ${id} | ${label} | ${pct(x.precision)} | ${pct(x.recall)} | ${pct(x.f1)} | ${x.fn} | ${x.fp} | ${num(a.unmatched, 1)} | ${num(a.ambiguous, 1)} |`);
       }
     }
   }

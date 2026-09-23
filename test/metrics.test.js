@@ -54,3 +54,23 @@ test('原文に無い指摘は当たりにせず、別に数える', () => {
   assert.equal(r.flagged.size, 0);
   assert.equal(r.unmatched, 2);
 });
+
+test('複数の文にまたがる指摘は、またいだ文すべてに当てる', () => {
+  // 先頭の1文だけに当てると、その指摘で拾えていた残りの文がrecallから落ちる。
+  const sentences = [
+    { id: 'a', text: '不自然なな文です。' },
+    { id: 'b', text: 'これも不自然でございますです。' },
+    { id: 'c', text: '自然な文です。' },
+  ];
+  const r = mapSuggestionsToSentences([{ original: '不自然なな文です。これも不自然でございますです。' }], sentences);
+  assert.deepEqual([...r.flagged].sort(), ['a', 'b']);
+  assert.equal(r.unmatched, 0);
+});
+
+test('どの文か決まらない指摘は、当てたうえで別に数える', () => {
+  const sentences = [{ id: 'a', text: '最適化します。' }, { id: 'b', text: '最適化しました。' }];
+  const r = mapSuggestionsToSentences([{ original: '最適化' }], sentences);
+  assert.equal(r.ambiguous, 1);
+  assert.equal(r.unmatched, 0);
+  assert.equal(r.flagged.size, 1);
+});

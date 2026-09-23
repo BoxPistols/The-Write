@@ -49,6 +49,13 @@ export function buildDocuments(corpus, sizes = [8, 20, 40], seed = 20260920) {
     return a;
   };
 
+  // 1項目が2文に割れると、goldと文の対応が1対1でなくなる。
+  // 組み立ててから気づくと、どの項目が原因か分からないまま落ちる。
+  const multi = corpus.filter((s) => splitSentences(s.text).length !== 1);
+  if (multi.length) {
+    throw new Error(`コーパスの項目は1文でなければならない: ${multi.map((s) => s.id).join(', ')}`);
+  }
+
   const ok = shuffle(corpus.filter((s) => s.gold === 'ok'));
   const ng = shuffle(corpus.filter((s) => s.gold === 'ng'));
 

@@ -41,6 +41,17 @@ const { values: args } = parseArgs({
 const REPEAT = Number(args.repeat);
 const SIZES = args.sizes.split(',').map(Number);
 
+// 先に弾く。0回や文字列のまま進むと、集計で undefined を読んで落ちる。
+// どこで落ちたのか分からない例外より、何が悪いかを言って止まるほうがよい。
+if (!Number.isInteger(REPEAT) || REPEAT < 1) {
+  console.error(`--repeat は1以上の整数で指定する（受け取った値: ${args.repeat}）`);
+  process.exit(1);
+}
+if (!SIZES.length || SIZES.some((n) => !Number.isInteger(n) || n < 1)) {
+  console.error(`--sizes は1以上の整数をカンマ区切りで指定する（受け取った値: ${args.sizes}）`);
+  process.exit(1);
+}
+
 // ─── 単価 ───────────────────────────────────────────
 // Jevの単価は環境変数で渡す。調べずに書くと、比較の結論が作り話になる。
 const llmPrice = (() => {
@@ -129,13 +140,13 @@ async function armLlmOnly(doc, io) {
 
   const suggestions = parseSuggestions(res.content?.[0]?.text || '');
   const parsed = suggestions != null;
-  const { flagged, unmatched } = mapSuggestionsToSentences(suggestions || [], doc.sentences);
+  const { flagged, unmatched, ambiguous } = mapSuggestionsToSentences(suggestions || [], doc.sentences);
 
   return {
     // 途中経過が無いので、最初の判定が出るのは全部が揃ったときになる。
     ttffMs: wallMs, wallMs, judgeMs: null, llmMs: wallMs,
     llmUsage: res.usage, jevUsage: null,
-    flagged, unmatched, parsed, suggestionCount: suggestions?.length ?? 0,
+    flagged, unmatched, ambiguous, parsed, suggestionCount: suggestions?.length ?? 0,
   };
 }
 
@@ -175,13 +186,13 @@ async function armJevTriage(doc, io) {
     suggestions = p || [];
   }
 
-  const { unmatched } = mapSuggestionsToSentences(suggestions, doc.sentences);
+  const { unmatched, ambiguous } = mapSuggestionsToSentences(suggestions, doc.sentences);
 
   return {
     // 最初の塊が返った時点で画面のスコアは動く。
     ttffMs, wallMs: now() - t0, judgeMs, llmMs,
     llmUsage, jevUsage,
-    flagged: jevFlagged, unmatched, parsed,
+    flagged: jevFlagged, unmatched, ambiguous, parsed,
     suggestionCount: suggestions.length,
     sentSentences: picked.length, failedJudgements: failed,
   };
@@ -254,6 +265,7 @@ async function main() {
         llmCostUsd: mean(xs.map((x) => costUsd(x.llmUsage, llmPrice))),
         jevCostUsd: xs[0].jevUsage ? mean(xs.map((x) => costUsd(x.jevUsage, jevPrice))) : null,
         unmatched: mean(xs.map((x) => x.unmatched)),
+        ambiguous: mean(xs.map((x) => x.ambiguous)),
         suggestionCount: mean(xs.map((x) => x.suggestionCount)),
         parseFailures: xs.filter((x) => !x.parsed).length,
         sentSentences: xs[0].sentSentences != null ? mean(xs.map((x) => x.sentSentences)) : null,
