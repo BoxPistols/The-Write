@@ -11,7 +11,13 @@ export const AVAILABLE_MODELS = [
   { id: 'gpt-5.6-luna', provider: 'openai', name: 'GPT-5.6 Luna', description: '高品質・低価格', inputPrice: 0.20, outputPrice: 1.20, speed: 4, quality: 4, secsPerKChar: 5 },
 
   // Google Gemini
-  { id: 'gemini-2.5-flash', provider: 'gemini', name: 'Gemini 2.5 Flash', description: '最速・最安', inputPrice: 0.10, outputPrice: 0.40, speed: 5, quality: 3, secsPerKChar: 4 },
+  // 3.8が現行の最新Flash（2026-09-03にGAとして発表。docs/latest-model?hl=jaに
+  // 「一般提供（GA）」と明記があり、gemini-flash-latestの解決先でもある）。
+  // 3.6を併記するのは、無料枠が1日20回でプロジェクトとモデルごとに別勘定だから
+  // （429のquotaIdがGenerateRequestsPerDayPerProjectPerModel-FreeTier、quotaValueが20）。
+  // $0.75/$3.75は2026-12-31までの期間価格で、2027-01-01から$1.50/$7.50に戻る。
+  { id: 'gemini-3.8-flash', provider: 'gemini', name: 'Gemini 3.8 Flash', description: '高速・大きなコンテキスト', inputPrice: 0.75, outputPrice: 3.75, speed: 5, quality: 5, secsPerKChar: 4 },
+  { id: 'gemini-3.6-flash', provider: 'gemini', name: 'Gemini 3.6 Flash', description: '3.8の無料枠を使い切った日の代替', inputPrice: 0.75, outputPrice: 3.75, speed: 5, quality: 4, secsPerKChar: 4 },
 ];
 
 /**

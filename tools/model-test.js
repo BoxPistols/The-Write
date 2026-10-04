@@ -23,7 +23,8 @@ const SAMPLE_TEXT = `AIは近年急速に発展しており、多くの分野で
 // モデル一覧（models.jsと同期）
 const MODELS = [
   { id: 'gpt-5.6-luna', provider: 'openai' },
-  { id: 'gemini-2.5-flash', provider: 'gemini' },
+  { id: 'gemini-3.8-flash', provider: 'gemini' },
+  { id: 'gemini-3.6-flash', provider: 'gemini' },
 ];
 
 // 口調テスト: だ/である調が含まれていないかチェック
