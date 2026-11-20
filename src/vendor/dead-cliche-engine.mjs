@@ -37,6 +37,74 @@ export function maskMarkdownCode(text) {
     .replace(/`[^`\n]+`/g, (m) => '\u220E'.repeat(m.length)); // 非空白: 空白依存ルール(崩れ太字等)と干渉させない
 }
 
+// 書き換えられない箇所 (引用・辞書の除外仕様の説明など) で検出を止めるコメント指示。
+// 書式は textlint に寄せる。利用者が既に知っている形にするため。
+//   <!-- dead-cliche-disable -->            以降すべてのルールを止める
+//   <!-- dead-cliche-disable rule/id, ... --> 指定したルールだけ止める
+//   <!-- dead-cliche-enable -->             止めていたものを再開する (id 指定も可)
+//   <!-- dead-cliche-disable-next-line ... --> 次の1行だけ止める
+const DIRECTIVE_RE = /<!--\s*dead-cliche-(disable-next-line|disable|enable)\b([^]*?)-->/g;
+
+function parseRuleIds(rest) {
+  const ids = String(rest).split(/[\s,]+/).filter(Boolean);
+  return ids.length > 0 ? new Set(ids) : null; // null は「すべてのルール」
+}
+
+function lineRangeAfter(text, index) {
+  const eol = text.indexOf('\n', index);
+  if (eol === -1) return null; // 指示のあとに行が無い
+  const nextEol = text.indexOf('\n', eol + 1);
+  return { start: eol + 1, end: nextEol === -1 ? text.length : nextEol + 1 };
+}
+
+// コメント指示から、検出を無効にする範囲を組み立てる。
+export function disabledRanges(text) {
+  const ranges = [];
+  const open = []; // { ruleIds, start }
+  DIRECTIVE_RE.lastIndex = 0;
+  let m;
+  while ((m = DIRECTIVE_RE.exec(text)) !== null) {
+    const [full, kind, rest] = m;
+    const ruleIds = parseRuleIds(rest);
+    if (kind === 'disable-next-line') {
+      const line = lineRangeAfter(text, m.index + full.length);
+      if (line) ranges.push({ ...line, ruleIds });
+      continue;
+    }
+    if (kind === 'disable') {
+      open.push({ ruleIds, start: m.index });
+      continue;
+    }
+    // enable: 指定が無ければ開いているものをすべて閉じる。
+    // id 指定は、その id で止めた範囲だけを閉じる。id を書かずに止めた範囲 (すべての
+    // ルールが対象) は、id 付きの enable では閉じない。書き手が守った範囲を、
+    // 別のルールを再開しただけで丸ごと外さないため。
+    const end = m.index + full.length;
+    for (let i = open.length - 1; i >= 0; i--) {
+      const o = open[i];
+      if (!ruleIds) {
+        ranges.push({ start: o.start, end, ruleIds: o.ruleIds });
+        open.splice(i, 1);
+        continue;
+      }
+      if (o.ruleIds === null) continue;
+      const closing = [...o.ruleIds].filter((id) => ruleIds.has(id));
+      if (closing.length === 0) continue;
+      ranges.push({ start: o.start, end, ruleIds: new Set(closing) });
+      for (const id of closing) o.ruleIds.delete(id);
+      if (o.ruleIds.size === 0) open.splice(i, 1);
+    }
+  }
+  for (const o of open) ranges.push({ start: o.start, end: text.length, ruleIds: o.ruleIds });
+  return ranges;
+}
+
+function isDisabled(ranges, index, ruleId) {
+  return ranges.some(
+    (r) => index >= r.start && index < r.end && (r.ruleIds === null || r.ruleIds.has(ruleId))
+  );
+}
+
 const SEVERITY_ORDER = { info: 0, warn: 1, error: 2 };
 
 // fixテンプレート ($1等) を、検出時のマッチ結果から展開する。
@@ -47,6 +115,7 @@ function expandFix(template, m) {
 
 export function check(text, rules, { minSeverity = 'info' } = {}) {
   const min = SEVERITY_ORDER[minSeverity] ?? 0;
+  const ranges = disabledRanges(text);
   const found = [];
   for (const rule of rules) {
     if ((SEVERITY_ORDER[rule.severity] ?? 0) < min) continue;
@@ -58,6 +127,7 @@ export function check(text, rules, { minSeverity = 'info' } = {}) {
           re.lastIndex++;
           continue;
         }
+        if (isDisabled(ranges, m.index, rule.id)) continue;
         const violation = {
           ruleId: rule.id,
           category: rule.category,
@@ -81,6 +151,7 @@ export function check(text, rules, { minSeverity = 'info' } = {}) {
 // maskedText (コード除外済み) で位置を決め、置換は原文に対して行う。
 export function applyFixes(text, rules, { maskedText = text } = {}) {
   const edits = [];
+  const ranges = disabledRanges(maskedText);
   for (const rule of rules) {
     if (rule.manual || rule.fix === undefined) continue;
     for (const re of compileRule(rule)) {
@@ -91,6 +162,7 @@ export function applyFixes(text, rules, { maskedText = text } = {}) {
           re.lastIndex++;
           continue;
         }
+        if (isDisabled(ranges, m.index, rule.id)) continue;
         const original = text.slice(m.index, m.index + m[0].length);
         const replacement = expandFix(rule.fix, m);
         edits.push({ ruleId: rule.id, index: m.index, length: m[0].length, before: original, after: replacement });
